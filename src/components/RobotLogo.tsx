@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 
 interface RobotLogoProps {
@@ -18,13 +19,14 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
         
-        // Normalize the position (-1 to 1 range)
-        const x = (e.clientX - centerX) / (window.innerWidth / 4);
-        const y = (e.clientY - centerY) / (window.innerHeight / 4);
+        // Calculate distance from center (normalized)
+        const deltaX = (e.clientX - centerX) / (window.innerWidth / 6);
+        const deltaY = (e.clientY - centerY) / (window.innerHeight / 6);
         
-        // Limit the range to keep eyes inside the visor
-        const clampedX = Math.max(-1, Math.min(1, x));
-        const clampedY = Math.max(-1, Math.min(1, y));
+        // Limit the movement range (smaller value = more constrained movement)
+        const maxMove = 4;
+        const clampedX = Math.max(-1, Math.min(1, deltaX)) * maxMove;
+        const clampedY = Math.max(-1, Math.min(1, deltaY)) * maxMove;
         
         setEyePosition({ x: clampedX, y: clampedY });
       }
@@ -34,6 +36,14 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
     };
+  }, []);
+
+  // Add a more accessible way to disable animation
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (mediaQuery.matches) {
+      setEyePosition({ x: 0, y: 0 });
+    }
   }, []);
 
   return (
@@ -50,16 +60,16 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
           className="w-full h-full rounded-3xl overflow-hidden shadow-lg"
         />
         
-        {/* Left Eye - positioned where eyes would be in the robot visor */}
+        {/* Left Eye */}
         <div 
           className="absolute bg-white rounded-full"
           style={{
-            width: size * 0.05,
-            height: size * 0.05,
+            width: size * 0.06,
+            height: size * 0.06,
             top: size * 0.38, 
-            left: size * 0.31,
-            transform: `translate(${eyePosition.x * 5}px, ${eyePosition.y * 3}px)`,
-            transition: 'transform 0.1s ease',
+            left: size * 0.33,
+            transform: `translate(${eyePosition.x}px, ${eyePosition.y}px)`,
+            transition: 'transform 0.15s ease-out',
           }}
         >
           <div 
@@ -74,16 +84,16 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
           />
         </div>
         
-        {/* Right Eye - positioned where eyes would be in the robot visor */}
+        {/* Right Eye */}
         <div 
           className="absolute bg-white rounded-full"
           style={{
-            width: size * 0.05,
-            height: size * 0.05,
+            width: size * 0.06,
+            height: size * 0.06,
             top: size * 0.38,
-            left: size * 0.61,
-            transform: `translate(${eyePosition.x * 5}px, ${eyePosition.y * 3}px)`,
-            transition: 'transform 0.1s ease',
+            left: size * 0.62,
+            transform: `translate(${eyePosition.x}px, ${eyePosition.y}px)`,
+            transition: 'transform 0.15s ease-out',
           }}
         >
           <div 
