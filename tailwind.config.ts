@@ -64,7 +64,7 @@ export default {
 					ring: 'hsl(var(--sidebar-ring))'
 				},
 				fud: {
-					peach: '#FDE1D3',
+					peach: '#FFDEE2', // Updated to more pinkish for dark mode
 					teal: '#8E9196',
 					brown: '#73604B',
 					yellow: '#FFF1BA',

@@ -6,7 +6,7 @@ interface RobotLogoProps {
   animated?: boolean;
 }
 
-const RobotLogo: React.FC<RobotLogoProps> = ({ size = 240, animated = true }) => {
+const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280, animated = true }) => {
   const robotRef = useRef<HTMLDivElement>(null);
   const leftEyeRef = useRef<HTMLDivElement>(null);
   const rightEyeRef = useRef<HTMLDivElement>(null);
@@ -21,7 +21,7 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 240, animated = true }) =>
       const robotCenterX = robotRect.left + robotRect.width / 2;
       const robotCenterY = robotRect.top + robotRect.height / 2;
       
-      const maxMove = 6; // increased maximum eye movement (was 3)
+      const maxMove = 10; // increased maximum eye movement (was 6)
       
       // Calculate eye movement based on cursor position relative to robot center
       const moveX = ((e.clientX - robotCenterX) / (window.innerWidth / 2)) * maxMove;
@@ -50,17 +50,17 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 240, animated = true }) =>
         className="w-full h-full"
       />
       
-      {/* Interactive eyes overlay */}
-      <div className="robot-eyes absolute" style={{ top: '35%', left: '35%', width: '30%' }}>
+      {/* Eye positions adjusted to match the logo's eye locations */}
+      <div className="absolute" style={{ top: '35%', left: '0', width: '100%', height: '15%' }}>
         <div 
           ref={leftEyeRef} 
-          className="robot-eye left" 
-          style={{ left: '15%' }}
+          className="robot-eye absolute" 
+          style={{ left: '25%', top: '50%', transform: 'translate(0, -50%)' }}
         />
         <div 
           ref={rightEyeRef} 
-          className="robot-eye right" 
-          style={{ right: '15%' }}
+          className="robot-eye absolute" 
+          style={{ right: '25%', top: '50%', transform: 'translate(0, -50%)' }}
         />
       </div>
     </div>

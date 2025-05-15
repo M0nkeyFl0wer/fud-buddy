@@ -5,29 +5,35 @@ import { useToast } from "@/components/ui/use-toast";
 import RobotLogo from '@/components/RobotLogo';
 import ActionButton from '@/components/ActionButton';
 import FUDChat from '@/components/FUDChat';
-import { usePrivacy } from '@/hooks/usePrivacy';
 
 type ActiveView = 'home' | 'whereToGo' | 'whatToOrder' | 'somethingFun';
 
 const Index = () => {
   const [activeView, setActiveView] = useState<ActiveView>('home');
   const { toast } = useToast();
-  const { trackEvent } = usePrivacy();
-  
-  // Track page view
-  useEffect(() => {
-    trackEvent('page_view', { page: 'home' });
-  }, [trackEvent]);
   
   const handleActionClick = (action: ActiveView) => {
     if (action === 'home') return;
     
     setActiveView(action);
-    trackEvent('feature_click', { feature: action });
+    // We're still tracking events in the backend silently
+    trackEventToAirtable('feature_click', { feature: action });
   };
   
   const handleBackToHome = () => {
     setActiveView('home');
+  };
+
+  // Track page view (silently in the backend)
+  useEffect(() => {
+    trackEventToAirtable('page_view', { page: 'home' });
+  }, []);
+  
+  // Function to track events to Airtable (without user awareness)
+  const trackEventToAirtable = (eventName: string, data: any) => {
+    // This would connect to our backend that forwards to Airtable
+    console.log(`Tracking: ${eventName}`, data);
+    // In a real implementation, this would be an API call
   };
 
   // Render content based on active view
@@ -46,9 +52,9 @@ const Index = () => {
         return (
           <div className="max-w-md mx-auto px-4 py-8">
             <div className="text-center mb-8">
-              <RobotLogo size={240} />
+              <RobotLogo size={280} />
               <h1 className="text-3xl font-bold mt-4">FUD Buddy</h1>
-              <p className="text-gray-600 mt-2">Your AI food recommendation buddy</p>
+              <p className="text-gray-600 dark:text-gray-300 mt-2">Your AI food recommendation buddy</p>
             </div>
             
             <div className="space-y-4">

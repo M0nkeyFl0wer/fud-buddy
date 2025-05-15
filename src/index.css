@@ -37,32 +37,32 @@
   }
 
   .dark {
-    --background: 25 33% 8%;
+    --background: 0 0% 0%; /* Pure black */
     --foreground: 24 82% 95%;
 
-    --card: 25 33% 12%;
+    --card: 0 0% 7%;
     --card-foreground: 24 82% 95%;
 
-    --popover: 25 33% 12%;
+    --popover: 0 0% 7%;
     --popover-foreground: 24 82% 95%;
 
     --primary: 186 8% 57%;
     --primary-foreground: 210 40% 98%;
 
-    --secondary: 217.2 32.6% 17.5%;
+    --secondary: 0 0% 15%;
     --secondary-foreground: 210 40% 98%;
 
-    --muted: 217.2 32.6% 17.5%;
+    --muted: 0 0% 15%;
     --muted-foreground: 215 20.2% 65.1%;
 
     --accent: 42 100% 86%;
-    --accent-foreground: 25 33% 12%;
+    --accent-foreground: 0 0% 7%;
 
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
     --ring: 186 8% 57%;
   }
 }
@@ -73,7 +73,7 @@
   }
 
   body {
-    @apply bg-fud-peach text-foreground;
+    @apply bg-background text-foreground;
   }
 
   html {
@@ -83,7 +83,7 @@
 
 @layer components {
   .fud-button {
-    @apply bg-fud-teal text-white py-4 px-6 rounded-full font-medium text-lg shadow-md transition-all hover:shadow-lg hover:-translate-y-1 active:translate-y-0 active:shadow-sm;
+    @apply bg-fud-teal text-white dark:bg-fud-peach dark:text-fud-brown py-4 px-6 rounded-full font-medium text-lg shadow-md transition-all hover:shadow-lg hover:-translate-y-1 active:translate-y-0 active:shadow-sm;
   }
   
   .chat-bubble {
@@ -91,23 +91,19 @@
   }
   
   .chat-bubble-user {
-    @apply chat-bubble bg-fud-teal text-white ml-auto;
+    @apply chat-bubble bg-fud-teal dark:bg-fud-peach dark:text-fud-brown text-white ml-auto;
   }
   
   .chat-bubble-bot {
-    @apply chat-bubble bg-white mr-auto;
+    @apply chat-bubble bg-white dark:bg-zinc-800 mr-auto;
   }
 }
 
 .robot-logo {
   position: relative;
-  width: 240px;
-  height: 240px;
+  width: 280px;
+  height: 280px;
   margin: 0 auto;
-}
-
-.robot-eyes {
-  position: relative;
 }
 
 .robot-eye {
@@ -116,16 +112,7 @@
   background: #73604B;
   border-radius: 50%;
   position: absolute;
-  top: 0;
   transition: all 0.1s ease;
-}
-
-.robot-eye.left {
-  left: 0;
-}
-
-.robot-eye.right {
-  right: 0;
 }
 
 @media (prefers-reduced-motion) {
