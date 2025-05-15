@@ -15,9 +15,9 @@ The app combines modern web technologies with AI to deliver personalized recomme
 FUD Buddy is built with:
 
 - **Frontend**: React + TypeScript + Vite
-- **UI Framework**: Tailwind CSS
+- **UI Framework**: Tailwind CSS + shadcn/ui
 - **State Management**: React Hooks + Context
-- **Analytics**: Custom integration with Google Analytics & Facebook Pixel
+- **Analytics**: Google Analytics & Facebook Pixel integration
 - **Data Storage**: Airtable (mock implementation currently)
 - **AI Integration**: OpenAI GPT (mock implementation currently)
 
@@ -33,7 +33,7 @@ FUD Buddy is built with:
 
 1. Clone the repository:
 ```
-git clone https://your-github-repo/fud-buddy.git
+git clone https://github.com/yourusername/fud-buddy.git
 cd fud-buddy
 ```
 
@@ -52,14 +52,30 @@ npm run dev
    - Set up your AI provider API key
    - Configure analytics tracking IDs
 
+## Configuration Guide
+
+FUD Buddy requires configuration in two key areas:
+
+### AI Integration
+
+1. Obtain an API key from OpenAI
+2. Add your key in the `/config` page under AI Integration tab
+3. Select your preferred AI model
+
+### Analytics Setup
+
+1. Create Google Analytics 4 property and obtain measurement ID
+2. Create Facebook Pixel and obtain Pixel ID
+3. Add these IDs in the `/config` page under Analytics tab
+
 ## API Integration
 
-FUD Buddy supports integration with OpenAI's GPT models through a service layer that handles:
+FUD Buddy is designed to connect with OpenAI's GPT models through a service layer that handles:
 - API authentication
 - Context management
 - Specialized prompts for each recommendation type
 
-The service is designed to gracefully fall back to mock responses during development or when API keys aren't configured.
+The service gracefully falls back to mock responses during development or when API keys aren't configured.
 
 ## Database Integration
 
@@ -70,13 +86,6 @@ The current implementation uses mock Airtable functions for data persistence. Th
 - **Analytics**: User behavior and events
 - **Restaurants**: Curated restaurant data
 
-## Analytics Implementation
-
-FUD Buddy supports:
-1. Google Analytics for general usage metrics
-2. Facebook Pixel for conversion tracking
-3. Internal analytics via Airtable for custom insights
-
 ## Next Steps for Production
 
 1. **AI Integration**: Replace mock implementation with actual OpenAI API calls
@@ -84,9 +93,8 @@ FUD Buddy supports:
 3. **Authentication**: Add user accounts and profile management
 4. **Testing**: Implement comprehensive test suite
 5. **Caching**: Add response caching for improved performance
-6. **Mobile App**: Consider React Native version for native mobile experience
 
-## When to Consider Migration to Windsuft
+## Migration to Windsuft
 
 Consider migrating to Windsuft when:
 
