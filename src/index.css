@@ -106,17 +106,8 @@
   margin: 0 auto;
 }
 
-.robot-eye {
-  width: 14px;
-  height: 14px;
-  background: #73604B;
-  border-radius: 50%;
-  position: absolute;
-  transition: all 0.1s ease;
-}
-
 @media (prefers-reduced-motion) {
-  .robot-eye {
-    transition: none;
+  .robot-logo * {
+    transition: none !important;
   }
 }
