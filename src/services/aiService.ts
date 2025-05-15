@@ -1,9 +1,8 @@
-
 import { toast } from "@/hooks/use-toast";
 import { logToAirtable } from "@/utils/airtable";
 
 // Define the types of requests our AI can handle
-export type AIChatType = 'whereToGo' | 'whatToOrder' | 'somethingFun';
+export type AIChatType = 'whereToGo' | 'whatToOrder' | 'somethingFun' | 'home';
 
 // Initial prompts for different chat types
 export const getInitialPrompt = (chatType: AIChatType): string => {
@@ -14,6 +13,8 @@ export const getInitialPrompt = (chatType: AIChatType): string => {
       return "Let's find you something delicious! What restaurant are you going to or looking at?";
     case 'somethingFun':
       return "Ready for a food adventure? Let me ask you a few questions. First, do you prefer sweet or savory foods?";
+    case 'home':
+      return "I'm here to help you with any food-related questions you might have. What can I assist you with today?";
     default:
       return "Hi! How can I help you today?";
   }
@@ -36,7 +37,8 @@ const DEFAULT_CONFIG: AIServiceConfig = {
 const SYSTEM_PROMPTS: Record<AIChatType, string> = {
   whereToGo: "You are a friendly food AI assistant specialized in recommending restaurants and food establishments. Provide helpful, concise suggestions based on user location and preferences. Focus on local establishments when possible.",
   whatToOrder: "You are a friendly food AI assistant specialized in recommending menu items. When a user mentions a restaurant, suggest specific dishes they might enjoy. Be concise but descriptive about what makes each dish special.",
-  somethingFun: "You are a friendly food AI assistant specialized in suggesting fun and unique food experiences. Recommend unexpected food adventures, fusion cuisines, or novel dining concepts. Be creative, fun, and inspirational."
+  somethingFun: "You are a friendly food AI assistant specialized in suggesting fun and unique food experiences. Recommend unexpected food adventures, fusion cuisines, or novel dining concepts. Be creative, fun, and inspirational.",
+  home: "I'm here to help you with any food-related questions you might have. What can I assist you with today?"
 };
 
 class AIService {
@@ -122,6 +124,8 @@ Alternatively, if you're feeling adventurous, "Byte Bistro" has some interesting
 2. Their Sweet Potato Fries with maple aioli - people can't stop talking about these!`;
       case 'somethingFun':
         return `Since you mentioned ${userInput}, how about trying a Korean corn dog? They're crispy on the outside, chewy on the inside, and rolled in different toppings. There's a place called 'Seoul Food' about 10 minutes from you that makes them fresh!`;
+      case 'home':
+        return "I'm here to help you with any food-related questions you might have. What can I assist you with today?";
       default:
         return "I'm not sure how to help with that. Want to try one of our main features?";
     }

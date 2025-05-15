@@ -1,4 +1,3 @@
-
 import { logToAirtable } from "@/utils/airtable";
 
 // Interface for pixel configuration
@@ -159,12 +158,3 @@ class AnalyticsService {
 
 // Export a singleton instance
 export const analyticsService = new AnalyticsService();
-
-// Add TypeScript definitions for global window object
-declare global {
-  interface Window {
-    dataLayer: any[];
-    gtag: (...args: any[]) => void;
-    fbq: (...args: any[]) => void;
-  }
-}
