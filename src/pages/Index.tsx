@@ -52,9 +52,9 @@ const Index = () => {
         return (
           <div className="max-w-md mx-auto px-4 py-8">
             <div className="text-center mb-8">
-              <RobotLogo size={320} animated={true} />
+              <RobotLogo size={320} />
               <h1 className="text-3xl font-bold mt-4">FUD Buddy</h1>
-              <p className="text-gray-600 dark:text-gray-300 mt-2">Your AI food recommendation buddy</p>
+              <p className="text-gray-600 dark:text-gray-300 mt-2">Your food recommendation AI buddy</p>
             </div>
             
             <div className="space-y-4">
