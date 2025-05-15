@@ -10,7 +10,7 @@ import {
   type ToastActionElement
 } from "@/components/ui/toast";
 
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, createContext, useContext } from "react";
 
 type ToasterToast = ToastProps & {
   id: string;
@@ -81,16 +81,31 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 // Simple toast function for direct usage
 export const toast = {
   success: (message: string) => {
-    const { toast } = useToast();
-    toast({ 
+    // We need to create a proper toast function that doesn't rely on hooks
+    // at the module level
+    const toastId = crypto.randomUUID();
+    const toastFunction = (props: Omit<ToasterToast, "id">) => {
+      document.dispatchEvent(new CustomEvent('toast', {
+        detail: { ...props, id: toastId }
+      }));
+    };
+    
+    toastFunction({ 
       title: "Success", 
       description: message,
       variant: "default" 
     });
   },
   error: (message: string) => {
-    const { toast } = useToast();
-    toast({ 
+    // Same approach for error toasts
+    const toastId = crypto.randomUUID();
+    const toastFunction = (props: Omit<ToasterToast, "id">) => {
+      document.dispatchEvent(new CustomEvent('toast', {
+        detail: { ...props, id: toastId }
+      }));
+    };
+    
+    toastFunction({ 
       title: "Error", 
       description: message,
       variant: "destructive" 
