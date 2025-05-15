@@ -4,6 +4,8 @@ import ChatMessage, { MessageType } from './ChatMessage';
 import ChatInput from './ChatInput';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
+import { aiService, getInitialPrompt, AIChatType } from '@/services/aiService';
+import { analyticsService } from '@/services/analyticsService';
 
 interface Message {
   id: string;
@@ -13,48 +15,15 @@ interface Message {
 
 interface FUDChatProps {
   initialMessage?: string;
-  chatType: 'whereToGo' | 'whatToOrder' | 'somethingFun';
+  chatType: AIChatType;
   onBack: () => void;
 }
-
-// Mock responses based on chat type
-const getMockResponse = (chatType: string, userInput: string): string => {
-  switch(chatType) {
-    case 'whereToGo':
-      return `Based on your location, I'd recommend checking out "The Hungry Robot" on Main Street. It has great reviews for their burgers and shakes!
-
-Alternatively, if you're feeling adventurous, "Byte Bistro" has some interesting fusion dishes that are getting a lot of buzz.`;
-    case 'whatToOrder':
-      return `At ${userInput}, I'd definitely recommend:
-
-1. The Truffle Mushroom Burger - it's their top seller with a perfect umami balance
-2. Their Sweet Potato Fries with maple aioli - people can't stop talking about these!`;
-    case 'somethingFun':
-      return "How about trying a Korean corn dog? They're crispy on the outside, chewy on the inside, and rolled in different toppings. There's a place called 'Seoul Food' about 10 minutes from you that makes them fresh!";
-    default:
-      return "I'm not sure how to help with that. Want to try one of our main features?";
-  }
-};
-
-// Initial prompts for different chat types
-const getInitialPrompt = (chatType: string): string => {
-  switch(chatType) {
-    case 'whereToGo':
-      return "Hi there! I'd be happy to help you find a great place to eat. Could you share your location or the area you're interested in exploring?";
-    case 'whatToOrder':
-      return "Let's find you something delicious! What restaurant are you going to or looking at?";
-    case 'somethingFun':
-      return "Ready for a food adventure? Let me ask you a few questions. First, do you prefer sweet or savory foods?";
-    default:
-      return "Hi! How can I help you today?";
-  }
-};
 
 const FUDChat: React.FC<FUDChatProps> = ({ initialMessage, chatType, onBack }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
+  
   useEffect(() => {
     // Add initial bot message when component mounts
     const botMessage = initialMessage || getInitialPrompt(chatType);
@@ -66,6 +35,9 @@ const FUDChat: React.FC<FUDChatProps> = ({ initialMessage, chatType, onBack }) =
         type: 'bot'
       }
     ]);
+    
+    // Track chat started event
+    analyticsService.trackEvent('chat_started', { chat_type: chatType });
   }, [initialMessage, chatType]);
 
   // Auto scroll to bottom when messages change
@@ -73,8 +45,8 @@ const FUDChat: React.FC<FUDChatProps> = ({ initialMessage, chatType, onBack }) =
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Simulate sending a message to the AI
-  const handleSendMessage = (content: string) => {
+  // Send a message to the AI service
+  const handleSendMessage = async (content: string) => {
     // Add user message to chat
     const newUserMessage = {
       id: Date.now().toString(),
@@ -84,22 +56,47 @@ const FUDChat: React.FC<FUDChatProps> = ({ initialMessage, chatType, onBack }) =
     
     setMessages(prev => [...prev, newUserMessage]);
     
-    // Simulate AI thinking
+    // Show typing indicator
     setIsTyping(true);
     
-    // Simulate API call delay
-    setTimeout(() => {
-      const botResponse = getMockResponse(chatType, content);
+    try {
+      // Get previous messages in the format needed for context
+      const messageHistory = messages.map(msg => ({
+        role: msg.type === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      }));
       
+      // Call the AI service
+      const response = await aiService.sendMessage(content, chatType, messageHistory);
+      
+      // Add the AI response to the chat
       const newBotMessage = {
         id: (Date.now() + 1).toString(),
-        content: botResponse,
+        content: response,
         type: 'bot' as MessageType
       };
       
       setMessages(prev => [...prev, newBotMessage]);
+      
+      // Track user message sent
+      analyticsService.trackEvent('message_sent', {
+        chat_type: chatType,
+        message_length: content.length
+      });
+    } catch (error) {
+      console.error('Error getting AI response:', error);
+      
+      // Add an error message
+      const errorMessage = {
+        id: (Date.now() + 1).toString(),
+        content: "Sorry, I'm having trouble connecting right now. Please try again.",
+        type: 'bot' as MessageType
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   return (

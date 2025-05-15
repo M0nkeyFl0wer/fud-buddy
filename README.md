@@ -1,73 +1,111 @@
-# Welcome to your Lovable project
 
-## Project info
+# FUD Buddy - AI Food Recommendation App
 
-**URL**: https://lovable.dev/projects/a97b21a8-9d30-44a2-a777-250d16c042ad
+## Overview
 
-## How can I edit this code?
+FUD Buddy is an AI-powered food recommendation application that helps users discover:
+- Where to go for food
+- What to order at restaurants
+- Fun and unique food experiences
 
-There are several ways of editing your application.
+The app combines modern web technologies with AI to deliver personalized recommendations.
 
-**Use Lovable**
+## Architecture
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/a97b21a8-9d30-44a2-a777-250d16c042ad) and start prompting.
+FUD Buddy is built with:
 
-Changes made via Lovable will be committed automatically to this repo.
+- **Frontend**: React + TypeScript + Vite
+- **UI Framework**: Tailwind CSS
+- **State Management**: React Hooks + Context
+- **Analytics**: Custom integration with Google Analytics & Facebook Pixel
+- **Data Storage**: Airtable (mock implementation currently)
+- **AI Integration**: OpenAI GPT (mock implementation currently)
 
-**Use your preferred IDE**
+## Key Features
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+- Conversational UI for natural interaction
+- Three specialized recommendation modes
+- Analytics tracking for user behavior
+- Dark mode support
+- Responsive design for all devices
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## Setup & Installation
 
-Follow these steps:
+1. Clone the repository:
+```
+git clone https://your-github-repo/fud-buddy.git
+cd fud-buddy
+```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+2. Install dependencies:
+```
+npm install
+```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+3. Start the development server:
+```
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+4. Configure the application:
+   - Navigate to the `/config` path in the app
+   - Set up your AI provider API key
+   - Configure analytics tracking IDs
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## API Integration
 
-**Use GitHub Codespaces**
+FUD Buddy supports integration with OpenAI's GPT models through a service layer that handles:
+- API authentication
+- Context management
+- Specialized prompts for each recommendation type
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+The service is designed to gracefully fall back to mock responses during development or when API keys aren't configured.
 
-## What technologies are used for this project?
+## Database Integration
 
-This project is built with:
+The current implementation uses mock Airtable functions for data persistence. The planned database schema includes:
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+- **Users**: User profiles and preferences
+- **Interactions**: Chat history and recommendations
+- **Analytics**: User behavior and events
+- **Restaurants**: Curated restaurant data
 
-## How can I deploy this project?
+## Analytics Implementation
 
-Simply open [Lovable](https://lovable.dev/projects/a97b21a8-9d30-44a2-a777-250d16c042ad) and click on Share -> Publish.
+FUD Buddy supports:
+1. Google Analytics for general usage metrics
+2. Facebook Pixel for conversion tracking
+3. Internal analytics via Airtable for custom insights
 
-## Can I connect a custom domain to my Lovable project?
+## Next Steps for Production
 
-Yes, you can!
+1. **AI Integration**: Replace mock implementation with actual OpenAI API calls
+2. **Database**: Complete Airtable integration or migrate to SQL/NoSQL database
+3. **Authentication**: Add user accounts and profile management
+4. **Testing**: Implement comprehensive test suite
+5. **Caching**: Add response caching for improved performance
+6. **Mobile App**: Consider React Native version for native mobile experience
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## When to Consider Migration to Windsuft
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+Consider migrating to Windsuft when:
+
+1. **Scale Requirements**: You need to handle thousands of concurrent users
+2. **Complex Backend Logic**: Your backend requirements exceed what Airtable can provide
+3. **Performance Bottlenecks**: You need more control over server infrastructure
+4. **Advanced Authentication**: You need enterprise-grade auth with complex permissions
+5. **Deployment Flexibility**: You need specialized deployment configurations
+
+The migration path would involve:
+1. Extracting core business logic
+2. Setting up Windsuft infrastructure
+3. Migrating data from Airtable
+4. Deploying as a decoupled frontend/backend architecture
+
+## Contributing
+
+Contributions are welcome! Please check the open issues or submit a pull request.
+
+## License
+
+[MIT License](LICENSE)

@@ -5,36 +5,30 @@ import { useToast } from "@/components/ui/use-toast";
 import RobotLogo from '@/components/RobotLogo';
 import ActionButton from '@/components/ActionButton';
 import FUDChat from '@/components/FUDChat';
-
-type ActiveView = 'home' | 'whereToGo' | 'whatToOrder' | 'somethingFun';
+import { AIChatType } from '@/services/aiService';
+import { analyticsService } from '@/services/analyticsService';
+import ConfigLink from '@/components/ConfigLink';
 
 const Index = () => {
-  const [activeView, setActiveView] = useState<ActiveView>('home');
+  const [activeView, setActiveView] = useState<AIChatType | 'home'>('home');
   const { toast } = useToast();
   
-  const handleActionClick = (action: ActiveView) => {
+  const handleActionClick = (action: AIChatType) => {
     if (action === 'home') return;
     
     setActiveView(action);
-    // We're still tracking events in the backend silently
-    trackEventToAirtable('feature_click', { feature: action });
+    analyticsService.trackEvent('feature_click', { feature: action });
   };
   
   const handleBackToHome = () => {
     setActiveView('home');
+    analyticsService.trackEvent('navigation', { action: 'back_to_home' });
   };
 
-  // Track page view (silently in the backend)
+  // Track page view
   useEffect(() => {
-    trackEventToAirtable('page_view', { page: 'home' });
+    analyticsService.trackPageView(window.location.pathname, 'FUD Buddy - Home');
   }, []);
-  
-  // Function to track events to Airtable (without user awareness)
-  const trackEventToAirtable = (eventName: string, data: any) => {
-    // This would connect to our backend that forwards to Airtable
-    console.log(`Tracking: ${eventName}`, data);
-    // In a real implementation, this would be an API call
-  };
 
   // Render content based on active view
   const renderContent = () => {
@@ -84,6 +78,7 @@ const Index = () => {
   return (
     <div className="min-h-screen flex flex-col">
       {renderContent()}
+      {activeView === 'home' && <ConfigLink />}
     </div>
   );
 };
