@@ -8,14 +8,15 @@ interface RobotLogoProps {
 const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
   const robotRef = useRef<HTMLDivElement>(null);
   const [eyePosition, setEyePosition] = useState({ x: 0, y: 0 });
+  const [logoPosition, setLogoPosition] = useState({ x: 0, y: 0 });
 
-  // Track mouse movement to move eyes
+  // Track mouse movement to move eyes and logo
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (robotRef.current) {
         const rect = robotRef.current.getBoundingClientRect();
         
-        // Calculate eye position based on mouse position relative to the robot logo
+        // Calculate center of the robot
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
         
@@ -23,12 +24,18 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
         const deltaX = (e.clientX - centerX) / (window.innerWidth / 6);
         const deltaY = (e.clientY - centerY) / (window.innerHeight / 6);
         
-        // Limit the movement range (smaller value = more constrained movement)
-        const maxMove = 4;
-        const clampedX = Math.max(-1, Math.min(1, deltaX)) * maxMove;
-        const clampedY = Math.max(-1, Math.min(1, deltaY)) * maxMove;
+        // Limit the eye movement (smaller value = more constrained)
+        const maxEyeMove = 3;
+        const clampedEyeX = Math.max(-1, Math.min(1, deltaX)) * maxEyeMove;
+        const clampedEyeY = Math.max(-1, Math.min(1, deltaY)) * maxEyeMove;
         
-        setEyePosition({ x: clampedX, y: clampedY });
+        // Limit the logo movement (even smaller for subtle effect)
+        const maxLogoMove = 2;
+        const clampedLogoX = Math.max(-1, Math.min(1, deltaX)) * maxLogoMove;
+        const clampedLogoY = Math.max(-1, Math.min(1, deltaY)) * maxLogoMove;
+        
+        setEyePosition({ x: clampedEyeX, y: clampedEyeY });
+        setLogoPosition({ x: clampedLogoX, y: clampedLogoY });
       }
     };
 
@@ -43,6 +50,7 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     if (mediaQuery.matches) {
       setEyePosition({ x: 0, y: 0 });
+      setLogoPosition({ x: 0, y: 0 });
     }
   }, []);
 
@@ -50,7 +58,12 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
     <div 
       ref={robotRef}
       className="robot-logo relative"
-      style={{ width: `${size}px`, height: `${size}px` }}
+      style={{ 
+        width: `${size}px`, 
+        height: `${size}px`,
+        transform: `translate(${logoPosition.x}px, ${logoPosition.y}px)`,
+        transition: 'transform 0.3s ease-out',
+      }}
     >
       <div className="relative w-full h-full">
         {/* Base robot image */}
@@ -60,16 +73,16 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
           className="w-full h-full rounded-3xl overflow-hidden shadow-lg"
         />
         
-        {/* Left Eye */}
+        {/* Left Eye (only one pair of eyes, positioned where they are in the robot image) */}
         <div 
           className="absolute bg-white rounded-full"
           style={{
-            width: size * 0.06,
-            height: size * 0.06,
-            top: size * 0.38, 
-            left: size * 0.33,
+            width: size * 0.05,
+            height: size * 0.05,
+            top: size * 0.25, 
+            left: size * 0.23,
             transform: `translate(${eyePosition.x}px, ${eyePosition.y}px)`,
-            transition: 'transform 0.15s ease-out',
+            transition: 'transform 0.2s ease-out',
           }}
         >
           <div 
@@ -88,12 +101,12 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
         <div 
           className="absolute bg-white rounded-full"
           style={{
-            width: size * 0.06,
-            height: size * 0.06,
-            top: size * 0.38,
-            left: size * 0.62,
+            width: size * 0.05,
+            height: size * 0.05,
+            top: size * 0.25,
+            left: size * 0.34,
             transform: `translate(${eyePosition.x}px, ${eyePosition.y}px)`,
-            transition: 'transform 0.15s ease-out',
+            transition: 'transform 0.2s ease-out',
           }}
         >
           <div 
