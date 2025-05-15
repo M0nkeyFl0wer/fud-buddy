@@ -7,10 +7,9 @@ interface RobotLogoProps {
 
 const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
   const robotRef = useRef<HTMLDivElement>(null);
-  const [eyePosition, setEyePosition] = useState({ x: 0, y: 0 });
   const [logoPosition, setLogoPosition] = useState({ x: 0, y: 0 });
 
-  // Track mouse movement to move eyes and logo
+  // Track mouse movement to move the entire logo
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (robotRef.current) {
@@ -24,17 +23,11 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
         const deltaX = (e.clientX - centerX) / (window.innerWidth / 6);
         const deltaY = (e.clientY - centerY) / (window.innerHeight / 6);
         
-        // Limit the eye movement (smaller value = more constrained)
-        const maxEyeMove = 3;
-        const clampedEyeX = Math.max(-1, Math.min(1, deltaX)) * maxEyeMove;
-        const clampedEyeY = Math.max(-1, Math.min(1, deltaY)) * maxEyeMove;
-        
-        // Limit the logo movement (even smaller for subtle effect)
-        const maxLogoMove = 2;
+        // Subtle movement for the logo
+        const maxLogoMove = 4;
         const clampedLogoX = Math.max(-1, Math.min(1, deltaX)) * maxLogoMove;
         const clampedLogoY = Math.max(-1, Math.min(1, deltaY)) * maxLogoMove;
         
-        setEyePosition({ x: clampedEyeX, y: clampedEyeY });
         setLogoPosition({ x: clampedLogoX, y: clampedLogoY });
       }
     };
@@ -49,7 +42,6 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     if (mediaQuery.matches) {
-      setEyePosition({ x: 0, y: 0 });
       setLogoPosition({ x: 0, y: 0 });
     }
   }, []);
@@ -72,54 +64,6 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 280 }) => {
           alt="FUD Buddy Logo" 
           className="w-full h-full rounded-3xl overflow-hidden shadow-lg"
         />
-        
-        {/* Left Eye (only one pair of eyes, positioned where they are in the robot image) */}
-        <div 
-          className="absolute bg-white rounded-full"
-          style={{
-            width: size * 0.05,
-            height: size * 0.05,
-            top: size * 0.25, 
-            left: size * 0.23,
-            transform: `translate(${eyePosition.x}px, ${eyePosition.y}px)`,
-            transition: 'transform 0.2s ease-out',
-          }}
-        >
-          <div 
-            className="absolute bg-black rounded-full"
-            style={{
-              width: '50%',
-              height: '50%',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-            }}
-          />
-        </div>
-        
-        {/* Right Eye */}
-        <div 
-          className="absolute bg-white rounded-full"
-          style={{
-            width: size * 0.05,
-            height: size * 0.05,
-            top: size * 0.25,
-            left: size * 0.34,
-            transform: `translate(${eyePosition.x}px, ${eyePosition.y}px)`,
-            transition: 'transform 0.2s ease-out',
-          }}
-        >
-          <div 
-            className="absolute bg-black rounded-full"
-            style={{
-              width: '50%',
-              height: '50%',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-            }}
-          />
-        </div>
       </div>
     </div>
   );
