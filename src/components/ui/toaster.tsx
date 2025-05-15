@@ -1,5 +1,4 @@
-
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast"
 import {
   Toast,
   ToastClose,
@@ -7,24 +6,10 @@ import {
   ToastProvider,
   ToastTitle,
   ToastViewport,
-} from "@/components/ui/toast";
-import { useEffect } from "react";
+} from "@/components/ui/toast"
 
 export function Toaster() {
-  const { toasts, toast } = useToast();
-  
-  // Listen for custom toast events
-  useEffect(() => {
-    const handleToast = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      if (customEvent.detail) {
-        toast(customEvent.detail);
-      }
-    };
-    
-    document.addEventListener('toast', handleToast);
-    return () => document.removeEventListener('toast', handleToast);
-  }, [toast]);
+  const { toasts } = useToast()
 
   return (
     <ToastProvider>

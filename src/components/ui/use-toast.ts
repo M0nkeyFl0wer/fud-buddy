@@ -1,5 +1,6 @@
 
-// Re-export from the hooks location
-import { useToast, toast, ToastProvider } from "@/hooks/use-toast";
+// Re-export from the actual toast component
+import { useToast as useToastHook, toast as toastFunction } from "@radix-ui/react-toast";
 
-export { useToast, toast, ToastProvider };
+export const useToast = useToastHook;
+export const toast = toastFunction;
