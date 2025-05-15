@@ -6,7 +6,7 @@ interface RobotLogoProps {
   animated?: boolean;
 }
 
-const RobotLogo: React.FC<RobotLogoProps> = ({ size = 200, animated = true }) => {
+const RobotLogo: React.FC<RobotLogoProps> = ({ size = 240, animated = true }) => {
   const robotRef = useRef<HTMLDivElement>(null);
   const leftEyeRef = useRef<HTMLDivElement>(null);
   const rightEyeRef = useRef<HTMLDivElement>(null);
@@ -21,7 +21,7 @@ const RobotLogo: React.FC<RobotLogoProps> = ({ size = 200, animated = true }) =>
       const robotCenterX = robotRect.left + robotRect.width / 2;
       const robotCenterY = robotRect.top + robotRect.height / 2;
       
-      const maxMove = 3; // max pixels the eyes can move
+      const maxMove = 6; // increased maximum eye movement (was 3)
       
       // Calculate eye movement based on cursor position relative to robot center
       const moveX = ((e.clientX - robotCenterX) / (window.innerWidth / 2)) * maxMove;

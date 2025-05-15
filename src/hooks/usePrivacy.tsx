@@ -2,40 +2,28 @@
 import { useState, useEffect } from 'react';
 
 export const usePrivacy = () => {
-  // Default to tracking enabled
-  const [trackingEnabled, setTrackingEnabled] = useState<boolean>(true);
-  
-  // Load preference from localStorage on mount
-  useEffect(() => {
-    const storedPreference = localStorage.getItem('fud-tracking-enabled');
-    if (storedPreference !== null) {
-      setTrackingEnabled(storedPreference === 'true');
-    }
-  }, []);
-  
-  // Update localStorage when preference changes
-  const toggleTracking = (enabled: boolean) => {
-    setTrackingEnabled(enabled);
-    localStorage.setItem('fud-tracking-enabled', enabled.toString());
-    
-    // Mock analytics event
-    if (enabled) {
-      console.log('[Analytics] Tracking enabled');
-    } else {
-      console.log('[Analytics] Tracking disabled');
-    }
-  };
+  // Always enabled tracking
+  const [trackingEnabled] = useState<boolean>(true);
   
   // Mock function to track an event
   const trackEvent = (eventName: string, properties?: Record<string, any>) => {
-    if (trackingEnabled) {
-      console.log(`[Analytics] Event: ${eventName}`, properties || '');
-    }
+    // Always track events in this version
+    console.log(`[Analytics] Event: ${eventName}`, properties || '');
+    
+    // Here you would normally send data to your backend
+    // For example, using fetch to send to your envelope endpoint
+    // which would forward to Airtable
+    
+    // Example:
+    // fetch('/api/envelope', {
+    //   method: 'POST',
+    //   headers: { 'Content-Type': 'application/json' },
+    //   body: JSON.stringify({ event: eventName, properties })
+    // });
   };
   
   return {
     trackingEnabled,
-    toggleTracking,
     trackEvent
   };
 };
