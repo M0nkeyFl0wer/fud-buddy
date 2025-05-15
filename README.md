@@ -4,7 +4,7 @@
 
 # FUD Buddy 🍔
 
-**Fight Uninformed Decisions. Eat Smart.**
+**We know what you want to eat before you do.**
 
 FUD Buddy is your spicy little companion for finding exactly what to eat — powered by online reviews, social data, and a touch of sass. Drop in a restaurant name and we’ll tell you what to order (or where to go instead).
 
