@@ -1,7 +1,14 @@
 const express = require('express');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
-const { createProxyMiddleware } = require('http-proxy-middleware');
+const { 
+  securityMiddleware, 
+  chatInputValidation, 
+  handleValidationErrors, 
+  createRateLimiter, 
+  requestLogger, 
+  sanitizeErrors,
+  corsOptions 
+} = require('./middleware/security');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -11,17 +18,18 @@ const REMOTE_OLLAMA_HOST = process.env.REMOTE_OLLAMA_HOST || 'seshat.noosworx.co
 const REMOTE_OLLAMA_PORT = process.env.REMOTE_OLLAMA_PORT || '11434';
 const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'qwen2.5:14b';
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Security middleware (apply first)
+app.use(securityMiddleware);
+app.use(requestLogger);
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
+app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
-// Rate limiting - adjust based on your needs
-const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 30, // limit each IP to 30 requests per windowMs
-  message: 'Too many requests, please try again later.'
-});
-app.use(limiter);
+// Rate limiting - stricter limits
+const generalLimiter = createRateLimiter(60000, 10); // 10 requests per minute
+const chatLimiter = createRateLimiter(60000, 5);     // 5 chat requests per minute
+
+app.use('/api/', generalLimiter);
 
 // Response cache to reduce model calls
 const responseCache = new Map();
@@ -65,14 +73,24 @@ function cleanCache() {
 // Clean cache every 15 minutes
 setInterval(cleanCache, 15 * 60 * 1000);
 
-// Main AI chat endpoint
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { message, chatType = 'home', previousMessages = [] } = req.body;
-    
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: 'Message is required and must be a string' });
-    }
+// Main AI chat endpoint with enhanced security
+app.post('/api/chat', 
+  chatLimiter,
+  chatInputValidation,
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const { message, chatType = 'home', previousMessages = [] } = req.body;
+      
+      console.log(`[CHAT] Processing ${chatType} request from ${req.ip}: "${message.substring(0, 50)}..."`);
+      
+      // Additional server-side validation (defense in depth)
+      if (!message || message.trim().length === 0) {
+        return res.status(400).json({ 
+          error: 'Message cannot be empty',
+          timestamp: new Date().toISOString()
+        });
+      }
 
     // Create cache key
     const cacheKey = `${chatType}:${message.toLowerCase().trim()}`;
@@ -193,6 +211,20 @@ app.post('/api/cache/clear', (req, res) => {
   responseCache.clear();
   res.json({ message: 'Cache cleared', size: responseCache.size });
 });
+
+// 404 handler for unknown endpoints
+app.use('*', (req, res) => {
+  console.warn(`[404] Unknown endpoint: ${req.method} ${req.originalUrl} from ${req.ip}`);
+  res.status(404).json({
+    error: 'Endpoint not found',
+    path: req.originalUrl,
+    method: req.method,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Global error handler (must be last)
+app.use(sanitizeErrors);
 
 // Start server
 app.listen(PORT, () => {
