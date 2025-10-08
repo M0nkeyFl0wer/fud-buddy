@@ -42,9 +42,9 @@ export interface AIResponse {
   sources?: string[];
 }
 
-// Initial prompts for different chat types with personalization
-export const getInitialPrompt = (chatType: AIChatType): string => {
-  const personalizedGreeting = userProfileService.getPersonalizedGreeting(chatType);
+// Initial prompts for different chat types with martech-enhanced personalization
+export const getInitialPrompt = async (chatType: AIChatType): Promise<string> => {
+  const personalizedGreeting = await userProfileService.getEnhancedPersonalizedGreeting(chatType);
   
   switch(chatType) {
     case 'whereToGo':
@@ -137,9 +137,9 @@ class AIService {
         console.warn('Could not get user location:', error);
       }
 
-      // Get personalization context
-      const personalizationContext = userProfileService.getPersonalizationContext();
-      const personalizedGreeting = userProfileService.getPersonalizedGreeting(chatType);
+      // Get enhanced personalization context with martech data
+      const personalizationContext = await userProfileService.getPersonalizationContext();
+      const personalizedGreeting = await userProfileService.getEnhancedPersonalizedGreeting(chatType);
 
       // Track the interaction
       userProfileService.trackInteraction({

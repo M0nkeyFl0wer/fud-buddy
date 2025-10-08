@@ -1,5 +1,7 @@
 import { logToAirtable } from "@/utils/airtable";
 import { LocationData } from "./locationService";
+import { martechProfileService, EnrichedUserProfile } from "./martechProfileService";
+import { pixelManagerService } from "./pixelManagerService";
 
 export interface UserPreferences {
   dietaryRestrictions: string[];
@@ -384,13 +386,29 @@ class UserProfileService {
   }
 
   /**
-   * Get personalization context for AI
+   * Get personalization context for AI with martech enhancement
    */
-  getPersonalizationContext(): string {
+  async getPersonalizationContext(): Promise<string> {
     if (!this.currentProfile) return '';
 
     const profile = this.currentProfile;
     const context = [];
+
+    // Get enhanced martech profile data
+    let martechContext = '';
+    try {
+      const fbp = this.getPixelId('facebook');
+      if (fbp) {
+        martechContext = martechProfileService.getEnhancedPersonalizationContext(fbp);
+      }
+    } catch (error) {
+      console.warn('Failed to get martech context:', error);
+    }
+
+    // Add martech context first (higher priority)
+    if (martechContext) {
+      context.push(martechContext);
+    }
 
     // Add dietary restrictions
     if (profile.preferences.dietaryRestrictions.length > 0) {
@@ -424,6 +442,94 @@ class UserProfileService {
     context.push(`User typically asks for food recommendations around ${timePattern}:00`);
 
     return context.join('. ') + '.';
+  }
+
+  /**
+   * Get martech-enhanced personalized greeting
+   */
+  async getEnhancedPersonalizedGreeting(chatType: string): Promise<string> {
+    const baseGreeting = this.getPersonalizedGreeting(chatType);
+    
+    try {
+      const fbp = this.getPixelId('facebook');
+      if (fbp) {
+        const enrichedProfile = await martechProfileService.enrichUserProfile(fbp);
+        if (enrichedProfile.confidence_score > 0.5) {
+          return this.buildMartechGreeting(enrichedProfile, chatType, baseGreeting);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to get enhanced greeting:', error);
+    }
+    
+    return baseGreeting;
+  }
+
+  /**
+   * Build greeting using martech profile data
+   */
+  private buildMartechGreeting(profile: EnrichedUserProfile, chatType: string, fallback: string): string {
+    const insights = profile.derived_insights;
+    const segments = profile.personalization_segments;
+    
+    let greeting = '';
+    
+    // High-confidence personalization
+    if (profile.confidence_score > 0.8) {
+      if (insights.dining_personality === 'foodie' && segments.includes('high_value_customer')) {
+        greeting = `I can tell you have excellent taste in food experiences. `;
+      } else if (insights.dining_personality === 'adventurous') {
+        greeting = `You strike me as someone who loves trying new culinary adventures. `;
+      } else if (insights.price_sensitivity === 'high' && insights.dining_personality === 'budget_minded') {
+        greeting = `I've noticed you appreciate great value in your dining choices. `;
+      }
+      
+      // Social influence indicators
+      if (insights.social_influence === 'high') {
+        greeting += `Your friends probably ask you for restaurant recommendations. `;
+      }
+      
+      // Timing patterns
+      if (insights.optimal_engagement_times.length > 0) {
+        const currentHour = new Date().getHours();
+        const optimalHour = insights.optimal_engagement_times[0];
+        if (Math.abs(currentHour - parseInt(optimalHour)) < 2) {
+          greeting += `Perfect timing - you're usually most active around now. `;
+        }
+      }
+    }
+    
+    return greeting || fallback;
+  }
+
+  /**
+   * Get pixel ID for martech integration
+   */
+  private getPixelId(provider: 'facebook' | 'google'): string | null {
+    try {
+      if (provider === 'facebook') {
+        const fbp = this.getCookie('_fbp');
+        return fbp || null;
+      } else if (provider === 'google') {
+        const ga = this.getCookie('_ga');
+        if (ga) {
+          const parts = ga.split('.');
+          return parts.length >= 4 ? `${parts[2]}.${parts[3]}` : null;
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to get ${provider} pixel ID:`, error);
+    }
+    return null;
+  }
+
+  /**
+   * Get cookie value
+   */
+  private getCookie(name: string): string | undefined {
+    if (typeof document === 'undefined') return undefined;
+    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return match ? decodeURIComponent(match[2]) : undefined;
   }
 
   /**
