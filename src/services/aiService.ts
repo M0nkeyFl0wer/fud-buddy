@@ -27,10 +27,10 @@ interface AIServiceConfig {
   endpoint?: string;
 }
 
-// Default configuration - this would typically come from environment variables
+// Default configuration - Ollama on seshat via SSH tunnel
 const DEFAULT_CONFIG: AIServiceConfig = {
-  model: "gpt-3.5-turbo", // Default model
-  endpoint: "https://api.openai.com/v1/chat/completions"
+  model: import.meta.env.VITE_SESHAT_MODEL || "llama3.1:8b", // Ollama model on seshat
+  endpoint: import.meta.env.VITE_SESHAT_ENDPOINT || "http://localhost:11434/api/generate" // Ollama API (via tunnel)
 };
 
 // Define system prompts for each chat type
@@ -49,53 +49,25 @@ class AIService {
   }
 
   /**
-   * Send a message to the AI model
+   * Send a message to the AI model (Seshat local model or fallback to OpenAI)
    */
-  async sendMessage(message: string, chatType: AIChatType, previousMessages: any[] = []): Promise<string> {
-    // Check if API key is configured
-    if (!this.config.apiKey) {
-      console.warn("AI API key not configured. Using mock responses.");
-      return this.getMockResponse(chatType, message);
-    }
-
+  async sendMessage(message: string, chatType: AIChatType, previousMessages: any[] = [], restaurantContext?: string): Promise<string> {
     try {
-      // Log the interaction to Airtable for analytics
+      // Log the interaction for analytics
       logToAirtable('ai_interactions', {
         chatType,
         userMessage: message,
         timestamp: new Date().toISOString()
       });
 
-      // In a real implementation, this would make an API call to the AI service
-      // For now, we're using mock responses
-      return this.getMockResponse(chatType, message);
-      
-      /* 
-      // This is how a real implementation would look:
-      const response = await fetch(this.config.endpoint!, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`
-        },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPTS[chatType] },
-            ...previousMessages,
-            { role: 'user', content: message }
-          ],
-          temperature: 0.7
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
+      // If we have an endpoint configured, use it (Seshat or OpenAI)
+      if (this.config.endpoint) {
+        return await this.callAIAPI(message, chatType, previousMessages, restaurantContext);
       }
 
-      const data = await response.json();
-      return data.choices[0].message.content;
-      */
+      // Otherwise fall back to mock responses
+      console.warn("No AI endpoint configured. Using mock responses.");
+      return this.getMockResponse(chatType, message);
     } catch (error) {
       console.error("Error calling AI API:", error);
       toast({
@@ -104,6 +76,53 @@ class AIService {
         variant: "destructive"
       });
       return "I'm having trouble connecting right now. Please try again in a moment.";
+    }
+  }
+
+  /**
+   * Call Ollama API on seshat server
+   */
+  private async callAIAPI(message: string, chatType: AIChatType, previousMessages: any[] = [], restaurantContext?: string): Promise<string> {
+    // Build system prompt with restaurant context if available
+    let systemPrompt = SYSTEM_PROMPTS[chatType];
+    if (restaurantContext) {
+      systemPrompt += `\n\nHere's information about restaurants I found:\n${restaurantContext}\n\nUse this information to make specific, helpful recommendations with a cheeky, friendly tone.`;
+    }
+
+    // Build full conversation for Ollama
+    const conversationHistory = previousMessages.map(m =>
+      `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+    ).join('\n\n');
+
+    const fullPrompt = `${systemPrompt}\n\n${conversationHistory}\n\nUser: ${message}\n\nAssistant:`;
+
+    const response = await fetch(this.config.endpoint!, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: this.config.model,
+        prompt: fullPrompt,
+        stream: false,
+        options: {
+          temperature: 0.7,
+          num_predict: 500
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Ollama API failed (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    if (data.response) {
+      return data.response;
+    } else {
+      throw new Error('Unexpected Ollama response format');
     }
   }
 
