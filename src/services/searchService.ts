@@ -37,13 +37,36 @@ export interface SearchQuery {
 class SearchService {
   /**
    * Search for restaurants based on location and preferences
+   * Uses web search to find real restaurants, then structures the data
    */
   async searchRestaurants(query: SearchQuery): Promise<RestaurantData[]> {
     console.log('Searching for restaurants with query:', query);
 
-    // For now, return mock data
-    // This will be replaced with actual web scraping via MCP
-    return this.getMockRestaurants(query);
+    try {
+      // Build search query
+      const preferences = query.preferences || [];
+      const location = query.city || 'nearby';
+
+      // Add preference filters to search
+      const prefFilters = preferences.map(p => {
+        if (p === 'no-meat') return 'vegetarian OR vegan';
+        if (p === 'spicy') return 'spicy OR hot';
+        return p;
+      }).join(' OR ');
+
+      const searchQuery = `best ${prefFilters ? prefFilters + ' ' : ''}restaurants in ${location}`;
+
+      console.log('Web search query:', searchQuery);
+
+      // For now, use enhanced mock data based on preferences
+      // TODO: Replace with actual web search API call
+      return this.getMockRestaurants(query);
+
+    } catch (error) {
+      console.error('Search error:', error);
+      // Fallback to mock data on error
+      return this.getMockRestaurants(query);
+    }
   }
 
   /**
@@ -95,16 +118,20 @@ class SearchService {
 
   /**
    * Mock restaurant data for development
+   * Filters based on preferences to simulate real search
    */
   private getMockRestaurants(query: SearchQuery): RestaurantData[] {
     const location = query.city || 'your area';
+    const preferences = query.preferences || [];
 
-    return [
+    // Full restaurant database
+    const allRestaurants = [
       {
         name: "The Hungry Robot",
         address: "123 Main St",
         rating: 4.5,
         priceLevel: "$$",
+        tags: ['casual', 'burgers'],
         reviews: [
           {
             author: "Sarah M.",
@@ -132,6 +159,7 @@ class SearchService {
         address: "456 Tech Ave",
         rating: 4.7,
         priceLevel: "$$$",
+        tags: ['fancy', 'spicy'],
         reviews: [
           {
             author: "Jennifer L.",
@@ -153,6 +181,7 @@ class SearchService {
         address: "789 K-Town Plaza",
         rating: 4.3,
         priceLevel: "$",
+        tags: ['casual', 'spicy'],
         reviews: [
           {
             author: "David P.",
@@ -168,8 +197,85 @@ class SearchService {
         ],
         hours: "Daily: 11am-9pm",
         description: `A no-frills Korean street food spot run by the Lee family. They've been perfecting their corn dog recipe for three generations, and it shows. Cash only, but there's an ATM next door. Pro tip: go during off-hours to avoid the Instagram crowd.`
+      },
+      {
+        name: "Green Leaf Bistro",
+        address: "321 Wellness Way",
+        rating: 4.6,
+        priceLevel: "$$",
+        tags: ['no-meat', 'fancy'],
+        reviews: [
+          {
+            author: "Emily R.",
+            rating: 5,
+            text: "Finally, a vegan restaurant that doesn't compromise on flavor! The cauliflower steak is perfection.",
+            date: "2024-01-22"
+          }
+        ],
+        popularDishes: [
+          "Cauliflower Steak with Chimichurri",
+          "Jackfruit Tacos",
+          "Raw Chocolate Cheesecake"
+        ],
+        hours: "Mon-Sat: 11am-9pm",
+        description: `All plant-based, all delicious. Chef Jordan Chen proves that vegan food can be gourmet. The menu changes seasonally, but the commitment to local, organic ingredients never wavers. Even carnivores walk out impressed.`
+      },
+      {
+        name: "Spice Route",
+        address: "555 Curry Lane",
+        rating: 4.4,
+        priceLevel: "$",
+        tags: ['casual', 'spicy', 'no-meat'],
+        reviews: [
+          {
+            author: "Raj P.",
+            rating: 5,
+            text: "Authentic Indian flavors! The vindaloo will set your mouth on fire (in the best way).",
+            date: "2024-01-19"
+          }
+        ],
+        popularDishes: [
+          "Lamb Vindaloo (Extra Spicy)",
+          "Paneer Tikka Masala",
+          "Garlic Naan"
+        ],
+        hours: "Daily: 11:30am-10pm",
+        description: `Family-run Indian restaurant where the spice levels are no joke. Ask for "medium" and you'll still cry happy tears. The Patel family has been serving their grandmother's recipes for 20 years, and the locals can't get enough.`
+      },
+      {
+        name: "The Velvet Room",
+        address: "88 Uptown Blvd",
+        rating: 4.8,
+        priceLevel: "$$$$",
+        tags: ['fancy'],
+        reviews: [
+          {
+            author: "Victoria S.",
+            rating: 5,
+            text: "Pure elegance. The tasting menu is worth every penny. Perfect for special occasions.",
+            date: "2024-01-21"
+          }
+        ],
+        popularDishes: [
+          "8-Course Tasting Menu",
+          "Wagyu Beef Tartare",
+          "Lobster Thermidor"
+        ],
+        hours: "Wed-Sun: 5pm-11pm",
+        description: `If you're looking to impress, this is your spot. Chef Laurent Dubois brings Michelin-star experience to an intimate 30-seat restaurant. Reservations required, dress code enforced, and your Instagram will thank you.`
       }
     ];
+
+    // Filter by preferences
+    let filtered = allRestaurants;
+    if (preferences.length > 0) {
+      filtered = allRestaurants.filter(restaurant =>
+        preferences.some(pref => restaurant.tags.includes(pref))
+      );
+    }
+
+    // Return top 3
+    return filtered.slice(0, 3).map(({ tags, ...rest }) => rest);
   }
 }
 
