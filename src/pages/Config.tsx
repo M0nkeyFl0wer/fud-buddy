@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { analyticsService } from '@/services/analyticsService';
-import { aiService } from '@/services/aiService';
+import { apiClient } from '@/services/api';
 import { ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -20,24 +20,24 @@ const Config: React.FC = () => {
   const [googleAnalyticsId, setGoogleAnalyticsId] = useState<string>('');
   const [facebookPixelId, setFacebookPixelId] = useState<string>('');
 
-  // Save AI configuration
-  const handleSaveAIConfig = () => {
+  // Save API configuration
+  const handleSaveAPIConfig = () => {
     try {
-      // In a real app, this would likely be saved to localStorage or a backend
-      aiService.setApiKey(aiApiKey);
+      apiClient.setApiKey(aiApiKey);
+      apiClient.setBaseUrl(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000');
       
-      localStorage.setItem('fud_ai_key', aiApiKey);
-      localStorage.setItem('fud_ai_model', aiModel);
+      localStorage.setItem('fud_api_key', aiApiKey);
+      localStorage.setItem('fud_api_base_url', localStorage.getItem('fud_api_base_url') || 'http://localhost:8000');
       
       toast({
-        title: "AI Configuration Saved",
-        description: "Your AI settings have been updated successfully."
+        title: "API Configuration Saved",
+        description: "Your API settings have been updated successfully."
       });
     } catch (error) {
-      console.error('Error saving AI config:', error);
+      console.error('Error saving API config:', error);
       toast({
         title: "Error",
-        description: "Failed to save AI configuration.",
+        description: "Failed to save API configuration.",
         variant: "destructive"
       });
     }
@@ -92,6 +92,8 @@ const Config: React.FC = () => {
     analyticsService.trackPageView('/config', 'FUD Buddy - Configuration');
   }, []);
 
+  const remoteEndpoint = import.meta.env.VITE_AI_API_BASE_URL;
+
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="flex items-center mb-8">
@@ -102,7 +104,13 @@ const Config: React.FC = () => {
         </Link>
         <h1 className="text-2xl font-bold">Configuration</h1>
       </div>
-      
+
+      {remoteEndpoint && (
+        <div className="mb-6 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+          Remote inference is active via <span className="font-mono">{remoteEndpoint}</span>. Values set below only override your local session and do not change the secure tunnel configuration.
+        </div>
+      )}
+
       <Tabs defaultValue="ai">
         <TabsList className="mb-4">
           <TabsTrigger value="ai">AI Integration</TabsTrigger>
@@ -140,9 +148,17 @@ const Config: React.FC = () => {
                   <option value="gpt-4">GPT-4</option>
                 </select>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="apiBaseUrl">API Base URL</Label>
+                <Input 
+                  id="apiBaseUrl"
+                  value={localStorage.getItem('fud_api_base_url') || 'http://localhost:8000'}
+                  placeholder="http://localhost:8000"
+                />
+              </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleSaveAIConfig}>Save AI Settings</Button>
+              <Button onClick={handleSaveAPIConfig}>Save API Settings</Button>
             </CardFooter>
           </Card>
         </TabsContent>
