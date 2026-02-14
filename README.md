@@ -43,3 +43,14 @@ bun dev        # or npm run dev
 
 📜 License
 MIT — use it, remix it, just don’t be evil.
+
+## Remote Model (Beta)
+
+FUD Buddy can run against the remote RTX 4090 host (seshat) over a secure tunnel:
+
+1. Copy `.env.example` to `.env` and set `VITE_AI_API_BASE_URL` to the tunnel endpoint (e.g. `http://10.0.0.51:9001`).
+2. Set `VITE_AI_API_TOKEN` to the bearer token configured on the remote inference server (`/home/m0nkey-fl0wer/Projects/fudbuddy-inference/.env`).
+3. Ensure `fudbuddy-inference.service` is active on seshat (user-level systemd) and `fudbuddy-tunnel.service` is active on the Pi to publish the tunnel.
+4. Run `npm run dev` locally — the client will call the secure endpoint automatically; if the endpoint is unavailable it falls back to mock responses.
+
+Rotate the token whenever you onboard new beta users and keep the tunnel restricted to your tailnet/VPN for privacy.
