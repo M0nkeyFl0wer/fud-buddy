@@ -9,21 +9,37 @@ import {
   Globe, 
   Clock,
   Facebook,
+  Instagram,
   AlertTriangle,
   ChevronDown,
   ChevronUp,
-  Fingerprint
+  Fingerprint,
+  Cpu,
+  Wifi,
+  EyeOff,
+  User
 } from 'lucide-react';
 
 interface OSINTData {
-  locationDescription?: string;
-  deviceDescription?: string;
-  browserDescription?: string;
-  timezoneDescription?: string;
-  screenDescription?: string;
-  languageDescription?: string;
-  fbPixelDetected?: boolean;
-  trackersFound?: number;
+  deviceType: string;
+  os: string;
+  browser: string;
+  screen: string;
+  cores: string;
+  memory: string;
+  touchSupport: string;
+  timezone: string;
+  language: string;
+  doNotTrack: string;
+  cookiesEnabled: string;
+  trackersFound: number;
+  cookiesStored: number;
+  localStorageUsed: boolean;
+  canvasFingerprint: string;
+  fbCookies: number;
+  igCookies: number;
+  fbPixelFired: boolean;
+  probableIdentity: string;
 }
 
 export function OSINTReveal() {
@@ -32,35 +48,107 @@ export function OSINTReveal() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const describeDevice = () => {
+    const collectFingerprint = async () => {
       const ua = navigator.userAgent;
-      let deviceDesc = 'A computing device';
-      if (/mobile/i.test(ua)) deviceDesc = 'A mobile device (phone or tablet)';
-      if (/tablet/i.test(ua)) deviceDesc = 'A tablet device';
       
-      let browserDesc = 'A modern web browser';
-      if (/chrome/i.test(ua)) browserDesc = 'A Chromium-based browser';
-      else if (/safari/i.test(ua)) browserDesc = 'A WebKit-based browser';
-      else if (/firefox/i.test(ua)) browserDesc = 'A Gecko-based browser';
+      let deviceType = 'Desktop';
+      if (/mobile/i.test(ua)) deviceType = 'Mobile';
+      if (/tablet/i.test(ua)) deviceType = 'Tablet';
       
-      return {
-        deviceDescription: deviceDesc,
-        browserDescription: browserDesc,
-        screenDescription: `${window.screen.width > 1000 ? 'Large' : window.screen.width > 500 ? 'Medium' : 'Small'} screen`,
-        languageDescription: `Browser language: ${navigator.language}`,
-      };
+      let os = 'Unknown OS';
+      if (/windows/i.test(ua)) os = 'Windows';
+      else if (/mac/i.test(ua)) os = 'macOS';
+      else if (/linux/i.test(ua)) os = 'Linux';
+      else if (/android/i.test(ua)) os = 'Android';
+      else if (/ios|iphone|ipad/i.test(ua)) os = 'iOS';
+      
+      let browser = 'Unknown';
+      if (/chrome/i.test(ua) && !/edg/i.test(ua)) browser = 'Chrome';
+      else if (/safari/i.test(ua) && !/chrome/i.test(ua)) browser = 'Safari';
+      else if (/firefox/i.test(ua)) browser = 'Firefox';
+      else if (/edg/i.test(ua)) browser = 'Edge';
+      
+      const screenDesc = `${window.screen.width}x${window.screen.height}`;
+      const cores = navigator.hardwareConcurrency || 'Unknown';
+      const memory = (navigator as any).deviceMemory ? `~${(navigator as any).deviceMemory}GB` : 'Unknown';
+      const touchSupport = navigator.maxTouchPoints > 0 ? `Yes` : 'No';
+      
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const language = navigator.language;
+      const doNotTrack = navigator.doNotTrack === '1' ? 'Enabled' : 'Disabled';
+      const cookiesEnabled = navigator.cookieEnabled ? 'Yes' : 'No';
+      
+      let cookiesStored = 0;
+      try {
+        cookiesStored = document.cookie.split(';').length;
+      } catch {}
+      
+      let localStorageUsed = false;
+      try {
+        localStorage.setItem('test', 'test');
+        localStorage.removeItem('test');
+        localStorageUsed = true;
+      } catch {}
+      
+      // Check for FB/IG cookies and pixel
+      let fbCookies = 0;
+      let igCookies = 0;
+      let fbPixelFired = false;
+      let fbqExists = false;
+      try {
+        const allCookies = document.cookie;
+        fbCookies = (allCookies.match(/fb|c_user|xs|plaid/g) || []).length;
+        igCookies = (allCookies.match(/ig|instagram|ds_user_id/g) || []).length;
+        fbqExists = typeof (window as any).fbq === 'function';
+        fbPixelFired = fbqExists;
+      } catch {}
+      
+      // Canvas fingerprint
+      let canvasFingerprint = 'N/A';
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.textBaseline = 'top';
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#f60';
+        ctx.fillRect(125, 1, 62, 20);
+        ctx.fillStyle = '#069';
+        ctx.fillText('FUD', 2, 15);
+        canvasFingerprint = btoa(canvas.toDataURL().slice(0, 50)).slice(0, 20);
+      } catch {}
+      
+      // Trackers
+      const trackersFound = document.scripts.length;
+      
+      // Fingerprint-based identity estimate
+      const probableIdentity = `${browser}-${os}-${screenDesc.slice(0, 8)}-${timezone.slice(0, 3)}`;
+      
+      setData({
+        deviceType,
+        os,
+        browser,
+        screen: screenDesc,
+        cores: String(cores),
+        memory,
+        touchSupport,
+        timezone,
+        language,
+        doNotTrack,
+        cookiesEnabled,
+        trackersFound,
+        cookiesStored,
+        localStorageUsed,
+        canvasFingerprint,
+        fbCookies,
+        igCookies,
+        fbPixelFired,
+        probableIdentity,
+      });
+      
+      setIsLoading(false);
     };
 
-    setTimeout(() => {
-      setData({
-        locationDescription: 'Your approximate location based on network',
-        timezoneDescription: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        ...describeDevice(),
-        fbPixelDetected: true,
-        trackersFound: Math.floor(Math.random() * 5) + 3,
-      });
-      setIsLoading(false);
-    }, 800);
+    setTimeout(collectFingerprint, 500);
   }, []);
 
   if (isLoading) {
@@ -83,74 +171,88 @@ export function OSINTReveal() {
           >
             <span className="flex items-center gap-2">
               <Eye className="w-3 h-3" />
-              What does FUD Buddy know about you?
+              See what FUD Buddy found about you
             </span>
             {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
           </Button>
 
           {isExpanded && (
-            <Card className="mx-4 mb-4 border-destructive/50">
+            <Card className="mx-4 mb-4 border-destructive/50 max-h-80 overflow-y-auto">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-destructive" />
-                  Your Digital Footprint
+                  Your Digital Fingerprint
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-xs">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <MapPin className="w-3 h-3" />
-                    <span>Location</span>
+                {/* Device */}
+                <div>
+                  <p className="font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                    <Smartphone className="w-3 h-3" /> Device
+                  </p>
+                  <div className="grid grid-cols-2 gap-1 pl-4 text-[10px]">
+                    <span className="text-muted-foreground">Type:</span><span>{data?.deviceType}</span>
+                    <span className="text-muted-foreground">OS:</span><span>{data?.os}</span>
+                    <span className="text-muted-foreground">Browser:</span><span>{data?.browser}</span>
+                    <span className="text-muted-foreground">Screen:</span><span>{data?.screen}</span>
                   </div>
-                  <span>{data?.locationDescription}</span>
-                  
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Smartphone className="w-3 h-3" />
-                    <span>Device</span>
-                  </div>
-                  <span>{data?.deviceDescription}</span>
-                  
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Globe className="w-3 h-3" />
-                    <span>Browser</span>
-                  </div>
-                  <span>{data?.browserDescription}</span>
-                  
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Clock className="w-3 h-3" />
-                    <span>Timezone</span>
-                  </div>
-                  <span>{data?.timezoneDescription}</span>
-
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Fingerprint className="w-3 h-3" />
-                    <span>Screen</span>
-                  </div>
-                  <span>{data?.screenDescription}</span>
                 </div>
 
-                <div className="border-t pt-2 mt-2">
-                  <div className="flex items-center gap-2 text-destructive mb-2">
-                    <Facebook className="w-3 h-3" />
-                    <span>Trackers Found</span>
-                  </div>
-                  <div className="bg-destructive/10 p-2 rounded text-destructive-foreground">
-                    <p>Facebook pixel detected on this page</p>
-                    <p className="text-[10px] mt-1 opacity-75">
-                      {data?.trackersFound} trackers found on this site
+                {/* Tracking */}
+                <div className="border-t pt-2">
+                  <p className="font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                    <EyeOff className="w-3 h-3" /> Trackers & Profiles
+                  </p>
+                  <div className="bg-destructive/10 p-2 rounded space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Facebook className="w-3 h-3" />
+                      <span>Facebook pixel:</span>
+                      <span className={data?.fbPixelFired ? "text-destructive font-bold" : "text-muted-foreground"}>
+                        {data?.fbPixelFired ? "FIRED - Facebook knows you visited" : "Not detected"}
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-muted-foreground pl-5">
+                      Pixel sent your IP, browser fingerprint & cookie to Facebook. 
+                      They match it to your profile and share with advertisers.
                     </p>
+                    <div className="flex items-center gap-2">
+                      <Instagram className="w-3 h-3" />
+                      <span>Instagram:</span>
+                      <span className={data?.igCookies && data.igCookies > 0 ? "text-destructive font-bold" : "text-muted-foreground"}>
+                        {data?.igCookies && data.igCookies > 0 ? "Cookies detected" : "Not detected"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Fingerprint className="w-3 h-3" />
+                      <span>Browser fingerprint:</span>
+                      <span className="font-mono text-destructive">{data?.canvasFingerprint}</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="border-t pt-2 mt-2 text-[10px] text-muted-foreground">
+                {/* Fingerprint Profile */}
+                <div className="border-t pt-2">
+                  <p className="font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                    <User className="w-3 h-3" /> Your Browser Profile
+                  </p>
+                  <div className="bg-muted p-2 rounded font-mono text-[9px] break-all">
+                    {data?.probableIdentity}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    This profile can be used to track you across websites even without cookies.
+                  </p>
+                </div>
+
+                {/* Why it matters */}
+                <div className="border-t pt-2 text-[10px] text-muted-foreground">
                   <p className="font-medium flex items-center gap-1">
                     <Shield className="w-3 h-3" />
-                    Why this matters
+                    The Reality
                   </p>
                   <p className="mt-1">
-                    Every website you visit collects data about you. The information 
-                    shown above was collected automatically - you never explicitly 
-                    provided most of it. This is the reality of the modern web.
+                    Facebook knows you visited this page. They can connect it to your 
+                    profile. This is how ad targeting actually works - and why Privacy 
+                    Badger or blocking trackers makes a real difference.
                   </p>
                 </div>
               </CardContent>
