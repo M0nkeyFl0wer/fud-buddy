@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -100,6 +100,59 @@ class FeedbackRequest(BaseModel):
     contact: Optional[str] = None
     consent_contact: bool = False
     consent_public: bool = False
+
+
+async def _persist_session(
+    session_id: uuid.UUID,
+    preferences: dict,
+    recommendations: list[dict],
+    sources: Optional[list[dict]] = None,
+) -> None:
+    if db_pool is None:
+        return
+
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                insert into fud_sessions (id, preferences, recommendations, sources)
+                values (%s, %s, %s, %s)
+                """,
+                (
+                    str(session_id),
+                    json.dumps(preferences),
+                    json.dumps(recommendations),
+                    json.dumps(sources or []),
+                ),
+            )
+        await conn.commit()
+
+
+async def _persist_feedback(feedback_id: uuid.UUID, payload: FeedbackRequest) -> None:
+    if db_pool is None:
+        return
+
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                insert into fud_feedback (
+                  id, session_id, rating, went, comment, contact, consent_contact, consent_public
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    str(feedback_id),
+                    str(uuid.UUID(payload.session_id)),
+                    payload.rating,
+                    payload.went,
+                    payload.comment,
+                    payload.contact,
+                    payload.consent_contact,
+                    payload.consent_public,
+                ),
+            )
+        await conn.commit()
 
 
 async def search_web(query: str) -> list[dict]:
@@ -243,6 +296,8 @@ async def chat_stream(request: ChatRequest):
             f"top rated restaurants {location} {cuisine}",
         ]
 
+        session_id = uuid.uuid4()
+
         # Search
         found: list[dict] = []
         for query in searches:
@@ -271,6 +326,15 @@ async def chat_stream(request: ChatRequest):
             )
             yield _sse({"type": "done"})
             return
+
+        sources = [
+            {
+                "title": (r.get("title") or "").strip(),
+                "url": (r.get("url") or "").strip(),
+                "engine": (r.get("engine") or "").strip(),
+            }
+            for r in dedup[:10]
+        ]
 
         search_context_lines: list[str] = []
         for r in dedup[:10]:
@@ -383,8 +447,16 @@ Rules:
                 yield _sse({"type": "done"})
                 return
 
+            await _persist_session(session_id, prefs, normalized[:2], sources=sources)
+
             # Send structured result so the frontend doesn't have to guess.
-            yield _sse({"type": "result", "recommendations": normalized[:2]})
+            yield _sse(
+                {
+                    "type": "result",
+                    "sessionId": str(session_id),
+                    "recommendations": normalized[:2],
+                }
+            )
             yield _sse({"type": "done"})
 
         except Exception as e:
@@ -392,6 +464,22 @@ Rules:
             yield _sse({"type": "done"})
 
     return EventSourceResponse(event_generator())
+
+
+@app.post("/api/feedback")
+async def submit_feedback(request: FeedbackRequest):
+    # Accept feedback even if DB is not configured (return a clear status).
+    try:
+        _ = uuid.UUID(request.session_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid session_id")
+
+    if db_pool is None:
+        return {"status": "unavailable", "message": "DATABASE_URL not configured"}
+
+    feedback_id = uuid.uuid4()
+    await _persist_feedback(feedback_id, request)
+    return {"status": "ok", "id": str(feedback_id)}
 
 
 @app.get("/health")
