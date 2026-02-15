@@ -1,0 +1,23 @@
+# Minimal settings; keep this instance local/private.
+
+use_default_settings: true
+
+general:
+  instance_name: "FUD Buddy Search"
+
+server:
+  secret_key: "CHANGE_ME_IN_PRODUCTION"
+  # Local/private instance: disable botdetection limiter (we don't run a reverse proxy here).
+  limiter: false
+  public_instance: false
+  method: "GET"
+
+redis:
+  url: "redis://redis:6379/0"
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  formats:
+    - html
+    - json
