@@ -14,7 +14,7 @@ import { Link } from 'react-router-dom';
 const Config: React.FC = () => {
   // AI Configuration
   const [aiApiKey, setAiApiKey] = useState<string>('');
-  const [aiModel, setAiModel] = useState<string>('gpt-3.5-turbo');
+  const [aiModel, setAiModel] = useState<string>('google/gemini-2.0-flash');
   
   // Analytics Configuration
   const [googleAnalyticsId, setGoogleAnalyticsId] = useState<string>('');
@@ -24,10 +24,15 @@ const Config: React.FC = () => {
   const handleSaveAPIConfig = () => {
     try {
       apiClient.setApiKey(aiApiKey);
+      apiClient.setLlmModel(aiModel);
       apiClient.setBaseUrl(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000');
       
       localStorage.setItem('fud_api_key', aiApiKey);
-      localStorage.setItem('fud_api_base_url', localStorage.getItem('fud_api_base_url') || 'http://localhost:8000');
+      localStorage.setItem('fud_llm_model', aiModel);
+      localStorage.setItem(
+        'fud_api_base_url',
+        localStorage.getItem('fud_api_base_url') || (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000')
+      );
       
       toast({
         title: "API Configuration Saved",
@@ -75,8 +80,8 @@ const Config: React.FC = () => {
   // Load saved configurations
   useEffect(() => {
     // Load AI config
-    const savedAiKey = localStorage.getItem('fud_ai_key');
-    const savedAiModel = localStorage.getItem('fud_ai_model');
+    const savedAiKey = localStorage.getItem('fud_api_key');
+    const savedAiModel = localStorage.getItem('fud_llm_model');
     
     if (savedAiKey) setAiApiKey(savedAiKey);
     if (savedAiModel) setAiModel(savedAiModel);
@@ -117,12 +122,12 @@ const Config: React.FC = () => {
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
         
-        <TabsContent value="ai">
+      <TabsContent value="ai">
           <Card>
             <CardHeader>
               <CardTitle>AI Configuration</CardTitle>
               <CardDescription>
-                Configure your AI provider settings. Currently supports OpenAI.
+                Configure OpenRouter for fast local testing. Your API key is stored in this browser only.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -133,7 +138,7 @@ const Config: React.FC = () => {
                   type="password"
                   value={aiApiKey}
                   onChange={(e) => setAiApiKey(e.target.value)}
-                  placeholder="Enter your OpenAI API key"
+                  placeholder="Enter your OpenRouter API key"
                 />
               </div>
               <div className="space-y-2">
@@ -144,8 +149,9 @@ const Config: React.FC = () => {
                   onChange={(e) => setAiModel(e.target.value)}
                   className="w-full p-2 border rounded-md"
                 >
-                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                  <option value="gpt-4">GPT-4</option>
+                  <option value="google/gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  <option value="minimax/minimax-01">Minimax 01</option>
+                  <option value="moonshotai/kimi-k2">Kimi K2</option>
                 </select>
               </div>
               <div className="space-y-2">
