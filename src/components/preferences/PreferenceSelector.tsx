@@ -179,7 +179,6 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
           <div className="space-y-3">
             <div className="text-center space-y-1">
               <h2 className="text-3xl font-bold">Where are you?</h2>
-              <p className="text-muted-foreground">Auto-detected, but you can edit it.</p>
             </div>
 
             <div className="flex gap-3">
@@ -192,6 +191,9 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
                   onChange={(e) => setLocation(e.target.value)}
                   className="w-full pl-12 pr-4 py-4 text-lg rounded-2xl border-2 border-fud-teal focus:outline-none focus:ring-4 focus:ring-fud-teal/20 bg-background"
                 />
+                {location && (
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">(is this right?)</span>
+                )}
               </div>
               <Button
                 variant="outline"
@@ -213,19 +215,12 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
           <div className="space-y-3">
             <div className="text-center space-y-1">
               <h2 className="text-3xl font-bold">What's the vibe?</h2>
-              <p className="text-muted-foreground">Pick up to 2.</p>
+              <p className="text-muted-foreground text-sm">Pick up to 2.</p>
             </div>
             <VibePicker selected={vibe} onChange={setVibe} max={2} />
           </div>
 
-          <div className="space-y-3">
-            <div className="text-center space-y-1">
-              <h3 className="text-xl font-semibold">Dietary restrictions</h3>
-              <p className="text-muted-foreground">Optional.</p>
-            </div>
-
-            <DietaryRestrictionsDropdown selected={dietary} onChange={setDietary} />
-          </div>
+          <DietaryRestrictionsDropdown selected={dietary} onChange={setDietary} />
 
           <p className="text-xs text-center text-muted-foreground">
             One tap. Two options. Maximum smug satisfaction.
