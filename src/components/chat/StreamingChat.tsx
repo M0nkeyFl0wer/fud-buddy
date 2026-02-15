@@ -42,6 +42,8 @@ interface Recommendation {
     apple?: string;
   };
   imageUrl?: string;
+  signals?: string[];
+  peopleSay?: { text: string; url: string; title?: string }[];
   dishes?: {
     name: string;
     description: string;
@@ -516,6 +518,35 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                   <h4 className="font-semibold mb-2">The story:</h4>
                   <p className="text-muted-foreground italic">{current.story}</p>
                 </div>
+
+                {Array.isArray(current.signals) && current.signals.length > 0 ? (
+                  <div className="border-t pt-4">
+                    <h4 className="font-semibold mb-2">Known vibes:</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {current.signals.slice(0, 6).map((s) => (
+                        <span key={s} className="text-xs rounded-full border px-3 py-1 bg-muted/30">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {Array.isArray(current.peopleSay) && current.peopleSay.length > 0 ? (
+                  <div className="border-t pt-4">
+                    <h4 className="font-semibold mb-2">What people are saying:</h4>
+                    <div className="space-y-2">
+                      {current.peopleSay.slice(0, 2).map((p) => (
+                        <div key={p.url} className="text-sm text-muted-foreground">
+                          <span className="italic">“{p.text}”</span>{' '}
+                          <a href={p.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                            source
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 {sources.length > 0 && (
                   <div className="border-t pt-4">
