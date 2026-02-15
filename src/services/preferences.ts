@@ -32,10 +32,6 @@ export const VIBES = [
   { id: 'family', label: 'Family-Friendly', icon: '👨‍👩‍👧‍👦' },
   { id: 'late-night', label: 'Late Night', icon: '🌙' },
   { id: 'brunch', label: 'Brunch', icon: '🥞' },
-  { id: 'sports-bar', label: 'Sports Bar', icon: '🏈' },
-  { id: 'cozy', label: 'Cozy', icon: '🔥' },
-  { id: 'romantic', label: 'Romantic', icon: '🕯️' },
-  { id: 'lively', label: 'Lively', icon: '🎉' },
 ] as const;
 
 export const PRICE_RANGES = [
