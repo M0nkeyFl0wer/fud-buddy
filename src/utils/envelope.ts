@@ -2,7 +2,10 @@
 // This is a mock API envelope file that will be used to send data to the backend
 
 // Mock function to send data to backend/Airtable
-export const sendToBackend = async (endpoint: string, data: any) => {
+export const sendToBackend = async (
+  endpoint: string,
+  data: unknown
+): Promise<{ success: true; message: string }> => {
   // In a real implementation, this would make an API call
   console.log(`[API] Sending to ${endpoint}:`, data);
   
@@ -16,7 +19,12 @@ export const sendToBackend = async (endpoint: string, data: any) => {
 };
 
 // Mock function to get recommendations
-export const getRecommendations = async (params: any) => {
+type RecommendationParams = {
+  type?: string;
+  [key: string]: unknown;
+};
+
+export const getRecommendations = async (params: RecommendationParams): Promise<unknown> => {
   console.log('[API] Getting recommendations with params:', params);
   
   // Simulate API call delay

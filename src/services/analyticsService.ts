@@ -23,12 +23,12 @@ class AnalyticsService {
    */
   private initializeFromWindow(): void {
     // Check for existing Google Analytics
-    if ((window as any).gtag) {
+    if (window.gtag) {
       this.googleInitialized = true;
     }
     
     // Check for existing Facebook Pixel
-    if ((window as any).fbq) {
+    if (window.fbq) {
       this.facebookInitialized = true;
     }
   }
@@ -50,11 +50,11 @@ class AnalyticsService {
     document.head.appendChild(script);
     
     // Initialize the gtag function
-    window.dataLayer = window.dataLayer || [];
-    function gtag(...args: any[]) {
-      window.dataLayer.push(arguments);
-    }
-    (window as any).gtag = gtag;
+    window.dataLayer = window.dataLayer ?? [];
+    const gtag = (...args: unknown[]) => {
+      window.dataLayer?.push(args);
+    };
+    window.gtag = gtag;
     
     gtag('js', new Date());
     gtag('config', googleId);
@@ -71,34 +71,42 @@ class AnalyticsService {
     
     this.config.facebookId = facebookId;
     
-    // Initialize Facebook Pixel
-    (function(f: any, b: any, e: any, v: any, n: any, t: any, s: any) {
-      if (f.fbq) return;
-      n = f.fbq = function() {
-        n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
+    // Initialize Facebook Pixel (minimal, type-safe queue implementation)
+    if (!window.fbq) {
+      type FbqQueuedFn = ((...args: unknown[]) => void) & {
+        callMethod?: (...args: unknown[]) => void;
+        queue: unknown[][];
+        loaded?: boolean;
+        version?: string;
       };
-      if (!f._fbq) f._fbq = n;
-      n.push = n;
-      n.loaded = !0;
-      n.version = '2.0';
-      n.queue = [];
-      t = b.createElement(e);
-      t.async = !0;
-      t.src = v;
-      s = b.getElementsByTagName(e)[0];
-      s.parentNode.insertBefore(t, s);
-    })(
-      window,
-      document,
-      'script',
-      'https://connect.facebook.net/en_US/fbevents.js',
-      0,
-      0,
-      0
-    );
-    
-    (window as any).fbq('init', facebookId);
-    (window as any).fbq('track', 'PageView');
+
+      const fbq: FbqQueuedFn = ((...args: unknown[]) => {
+        if (typeof fbq.callMethod === 'function') {
+          fbq.callMethod(...args);
+          return;
+        }
+        fbq.queue.push(args);
+      }) as FbqQueuedFn;
+
+      fbq.queue = [];
+      fbq.loaded = true;
+      fbq.version = '2.0';
+      window.fbq = fbq;
+      (window as Window & { _fbq?: unknown })._fbq = fbq;
+
+      const script = document.createElement('script');
+      script.async = true;
+      script.src = 'https://connect.facebook.net/en_US/fbevents.js';
+      const firstScript = document.getElementsByTagName('script')[0];
+      if (firstScript?.parentNode) {
+        firstScript.parentNode.insertBefore(script, firstScript);
+      } else {
+        document.head.appendChild(script);
+      }
+    }
+
+    window.fbq?.('init', facebookId);
+    window.fbq?.('track', 'PageView');
     
     this.facebookInitialized = true;
     console.log('Facebook Pixel initialized');
@@ -117,7 +125,7 @@ class AnalyticsService {
     
     // Google Analytics
     if (this.googleInitialized) {
-      (window as any).gtag('event', 'page_view', {
+      window.gtag?.('event', 'page_view', {
         page_path: pagePath,
         page_title: pageTitle || document.title
       });
@@ -125,7 +133,7 @@ class AnalyticsService {
     
     // Facebook Pixel
     if (this.facebookInitialized) {
-      (window as any).fbq('track', 'PageView');
+      window.fbq?.('track', 'PageView');
     }
     
     console.log(`Page view tracked: ${pagePath}`);
@@ -134,7 +142,7 @@ class AnalyticsService {
   /**
    * Track a custom event
    */
-  trackEvent(eventName: string, params?: Record<string, any>): void {
+  trackEvent(eventName: string, params?: Record<string, unknown>): void {
     // Log to internal analytics (Airtable)
     logToAirtable('events', {
       event: eventName,
@@ -144,12 +152,12 @@ class AnalyticsService {
     
     // Google Analytics
     if (this.googleInitialized) {
-      (window as any).gtag('event', eventName, params);
+      window.gtag?.('event', eventName, params);
     }
     
     // Facebook Pixel
     if (this.facebookInitialized) {
-      (window as any).fbq('track', eventName, params);
+      window.fbq?.('track', eventName, params);
     }
     
     console.log(`Event tracked: ${eventName}`, params);

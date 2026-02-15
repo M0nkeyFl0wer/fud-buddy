@@ -19,6 +19,9 @@ import {
   EyeOff,
   User
 } from 'lucide-react';
+import { TrackerDemo } from '@/components/TrackerDemo';
+
+type NavigatorWithDeviceMemory = Navigator & { deviceMemory?: number };
 
 interface OSINTData {
   deviceType: string;
@@ -70,7 +73,8 @@ export function OSINTReveal() {
       
       const screenDesc = `${window.screen.width}x${window.screen.height}`;
       const cores = navigator.hardwareConcurrency || 'Unknown';
-      const memory = (navigator as any).deviceMemory ? `~${(navigator as any).deviceMemory}GB` : 'Unknown';
+      const memoryGb = (navigator as NavigatorWithDeviceMemory).deviceMemory;
+      const memory = typeof memoryGb === 'number' ? `~${memoryGb}GB` : 'Unknown';
       const touchSupport = navigator.maxTouchPoints > 0 ? `Yes` : 'No';
       
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -81,33 +85,39 @@ export function OSINTReveal() {
       let cookiesStored = 0;
       try {
         cookiesStored = document.cookie.split(';').length;
-      } catch {}
+      } catch {
+        /* ignore */
+      }
       
       let localStorageUsed = false;
       try {
         localStorage.setItem('test', 'test');
         localStorage.removeItem('test');
         localStorageUsed = true;
-      } catch {}
+      } catch {
+        /* ignore */
+      }
       
       // Check for FB/IG cookies and pixel
       let fbCookies = 0;
       let igCookies = 0;
       let fbPixelFired = false;
-      let fbqExists = false;
       try {
         const allCookies = document.cookie;
         fbCookies = (allCookies.match(/fb|c_user|xs|plaid/g) || []).length;
         igCookies = (allCookies.match(/ig|instagram|ds_user_id/g) || []).length;
-        fbqExists = typeof (window as any).fbq === 'function';
+        const fbqExists = typeof window.fbq === 'function';
         fbPixelFired = fbqExists;
-      } catch {}
+      } catch {
+        /* ignore */
+      }
       
       // Canvas fingerprint
       let canvasFingerprint = 'N/A';
       try {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas 2D context unavailable');
         ctx.textBaseline = 'top';
         ctx.font = '14px Arial';
         ctx.fillStyle = '#f60';
@@ -115,7 +125,9 @@ export function OSINTReveal() {
         ctx.fillStyle = '#069';
         ctx.fillText('FUD', 2, 15);
         canvasFingerprint = btoa(canvas.toDataURL().slice(0, 50)).slice(0, 20);
-      } catch {}
+      } catch {
+        /* ignore */
+      }
       
       // Trackers
       const trackersFound = document.scripts.length;
@@ -250,10 +262,19 @@ export function OSINTReveal() {
                     The Reality
                   </p>
                   <p className="mt-1">
-                    Facebook knows you visited this page. They can connect it to your 
-                    profile. This is how ad targeting actually works - and why Privacy 
-                    Badger or blocking trackers makes a real difference.
+                    Sites can collect a lot (device + network signals) without asking. Some of that data
+                    is enough to make you consistently re-identifiable across sites. We can't read your
+                    Facebook or Instagram ID here, but ad platforms can link visits to accounts inside
+                    their systems.
                   </p>
+                </div>
+
+                {/* Opt-in demo */}
+                <div className="border-t pt-2">
+                  <p className="font-semibold text-muted-foreground mb-1">
+                    Try it with Privacy Badger
+                  </p>
+                  <TrackerDemo />
                 </div>
               </CardContent>
             </Card>

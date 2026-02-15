@@ -17,26 +17,21 @@ export function CuisinePicker({ selected, onChange, max = 3 }: CuisinePickerProp
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex justify-between items-center text-sm text-muted-foreground">
-        <span>Select up to {max} cuisines</span>
-        <span>{selected.length}/{max} selected</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {CUISINES.map(cuisine => (
-          <Button
-            key={cuisine.id}
-            variant={selected.includes(cuisine.id) ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => toggle(cuisine.id)}
-            className="gap-2"
-            disabled={!selected.includes(cuisine.id) && selected.length >= max}
-          >
-            <span>{cuisine.icon}</span>
-            <span>{cuisine.label}</span>
-          </Button>
-        ))}
-      </div>
+    <div className="flex flex-wrap justify-center gap-3">
+      {CUISINES.map(cuisine => (
+        <Button
+          key={cuisine.id}
+          variant={selected.includes(cuisine.id) ? 'default' : 'outline'}
+          onClick={() => toggle(cuisine.id)}
+          className={`text-lg py-6 px-5 rounded-2xl transition-all transform hover:scale-105 ${
+            selected.includes(cuisine.id) ? 'scale-105 shadow-lg' : ''
+          }`}
+          disabled={!selected.includes(cuisine.id) && selected.length >= max}
+        >
+          <span className="text-2xl mr-2">{cuisine.icon}</span>
+          <span>{cuisine.label}</span>
+        </Button>
+      ))}
     </div>
   );
 }

@@ -17,26 +17,21 @@ export function VibePicker({ selected, onChange, max = 2 }: VibePickerProps) {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex justify-between items-center text-sm text-muted-foreground">
-        <span>Select up to {max} vibes</span>
-        <span>{selected.length}/{max} selected</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {VIBES.map(vibe => (
-          <Button
-            key={vibe.id}
-            variant={selected.includes(vibe.id) ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => toggle(vibe.id)}
-            className="gap-2"
-            disabled={!selected.includes(vibe.id) && selected.length >= max}
-          >
-            <span>{vibe.icon}</span>
-            <span>{vibe.label}</span>
-          </Button>
-        ))}
-      </div>
+    <div className="flex flex-wrap justify-center gap-3">
+      {VIBES.map(vibe => (
+        <Button
+          key={vibe.id}
+          variant={selected.includes(vibe.id) ? 'default' : 'outline'}
+          onClick={() => toggle(vibe.id)}
+          className={`text-lg py-6 px-5 rounded-2xl transition-all transform hover:scale-105 ${
+            selected.includes(vibe.id) ? 'scale-105 shadow-lg' : ''
+          }`}
+          disabled={!selected.includes(vibe.id) && selected.length >= max}
+        >
+          <span className="text-2xl mr-2">{vibe.icon}</span>
+          <span>{vibe.label}</span>
+        </Button>
+      ))}
     </div>
   );
 }

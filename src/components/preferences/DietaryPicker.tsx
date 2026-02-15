@@ -16,24 +16,23 @@ export function DietaryPicker({ selected, onChange }: DietaryPickerProps) {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="text-sm text-muted-foreground">
-        Dietary restrictions (optional)
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {DIETARY.map(item => (
-          <Button
-            key={item.id}
-            variant={selected.includes(item.id) ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => toggle(item.id)}
-            className="gap-2"
-          >
-            <span>{item.icon}</span>
-            <span>{item.label}</span>
-          </Button>
-        ))}
-      </div>
+    <div className="flex flex-wrap justify-center gap-3">
+      {DIETARY.map(item => (
+        <Button
+          key={item.id}
+          variant={selected.includes(item.id) ? 'default' : 'outline'}
+          onClick={() => toggle(item.id)}
+          className={`text-lg py-5 px-5 rounded-2xl transition-all transform hover:scale-105 ${
+            selected.includes(item.id) ? 'scale-105 shadow-lg' : ''
+          }`}
+        >
+          <span className="text-2xl mr-2">{item.icon}</span>
+          <span>{item.label}</span>
+        </Button>
+      )      )}
+      <Button variant="outline" onClick={() => onChange([])} className="text-lg py-5 px-5 rounded-2xl">
+        None
+      </Button>
     </div>
   );
 }
