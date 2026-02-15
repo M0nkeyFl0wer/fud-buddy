@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional, List, Any
 import os
@@ -11,6 +12,8 @@ import re
 import asyncio
 from urllib.parse import quote_plus
 import html
+import ipaddress
+from urllib.parse import urlparse
 
 try:
     from psycopg_pool import AsyncConnectionPool
@@ -184,6 +187,75 @@ async def _llm_generate(prompt: str) -> str:
 
 
 db_pool = None
+
+
+def _is_public_http_url(raw: str) -> bool:
+    """Basic SSRF guard for the image proxy."""
+
+    try:
+        u = urlparse(raw)
+    except Exception:
+        return False
+    if u.scheme not in ("http", "https"):
+        return False
+    if not u.hostname:
+        return False
+
+    host = u.hostname
+    if host in ("localhost",):
+        return False
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except Exception:
+        # Not an IP; allow (DNS-level SSRF is still possible but this is a simple dev proxy).
+        return True
+
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+    ):
+        return False
+    return True
+
+
+@app.get("/api/image-proxy")
+async def image_proxy(url: str):
+    """Fetch a remote image and return it with permissive CORS.
+
+    Used for share card rendering (canvas) where direct cross-origin images taint the canvas.
+    """
+
+    if not _is_public_http_url(url):
+        raise HTTPException(status_code=400, detail="Invalid url")
+
+    headers = {
+        "Accept": "image/*",
+        "User-Agent": "fud-buddy-dev/1.0",
+    }
+
+    max_bytes = 5_000_000
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        resp = await client.get(url, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Upstream fetch failed")
+        content_type = resp.headers.get("content-type", "image/jpeg")
+        data = resp.content
+
+    if len(data) > max_bytes:
+        raise HTTPException(status_code=413, detail="Image too large")
+
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=86400",
+        },
+    )
 
 
 @app.get("/api/geocode/reverse")
