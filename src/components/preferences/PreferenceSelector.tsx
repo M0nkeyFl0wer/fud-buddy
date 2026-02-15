@@ -4,7 +4,6 @@ import { VibePicker } from './VibePicker';
 import { MapPin, Loader2, Sparkles } from 'lucide-react';
 import { apiClient, type UserPreferences } from '@/services/api';
 import { ONBOARDING_MESSAGES } from '@/services/messages';
-import RobotLogo from '@/components/RobotLogo';
 import { DietaryRestrictionsDropdown } from './DietaryRestrictionsDropdown';
 
 interface PreferenceSelectorProps {
@@ -170,11 +169,9 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
     <div className="min-h-screen flex flex-col">
       <div className="flex-1">
         <div className="max-w-lg mx-auto p-6 space-y-6 pb-28">
-          <div className="flex justify-center">
-            <RobotLogo size={120} />
+          <div className="pt-6">
+            <p className="text-center text-muted-foreground italic text-lg">"{message}"</p>
           </div>
-
-          <p className="text-center text-muted-foreground italic text-lg">"{message}"</p>
 
           <div className="space-y-3">
             <div className="text-center space-y-1">
