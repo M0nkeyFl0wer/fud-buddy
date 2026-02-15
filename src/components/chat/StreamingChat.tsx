@@ -625,9 +625,9 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                 History
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" onClick={generateRecommendations} className="gap-2">
+            <Button variant="default" size="lg" onClick={generateRecommendations} className="gap-2">
               <RefreshCw className="w-4 h-4" />
-              New search
+              Try again
             </Button>
           </div>
         </div>

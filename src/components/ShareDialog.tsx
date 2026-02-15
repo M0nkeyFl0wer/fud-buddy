@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Copy, Download, ExternalLink, Share2 } from 'lucide-react';
-import { downloadShareCardPng, renderShareCardSvg } from '@/utils/shareCard';
+import { downloadShareCardPng, renderShareCardPngBlob, renderShareCardSvg } from '@/utils/shareCard';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type RecommendationLike = {
@@ -100,12 +100,27 @@ export function ShareDialog({ open, onOpenChange, recommendations = [], initialI
   };
 
   const handleWebShare = async () => {
-    if (!('share' in navigator)) return;
     try {
-      await (navigator as Navigator & { share: (data: ShareData) => Promise<void> }).share({
-        title: 'FUD Buddy',
-        text: caption,
-      });
+      if (!('share' in navigator)) return;
+      const n = navigator as Navigator & { canShare?: (data: ShareData) => boolean; share: (data: ShareData) => Promise<void> };
+
+      // Prefer sharing the image file when supported.
+      if (svg) {
+        const blob = await renderShareCardPngBlob(svg);
+        const safeName = (recommendation?.restaurant.name || 'fud')
+          .replace(/[^a-z0-9\-\s]/gi, '')
+          .trim()
+          .replace(/\s+/g, '-')
+          .toLowerCase();
+        const file = new File([blob], `fud-${safeName || 'share'}.png`, { type: 'image/png' });
+        const data: ShareData = { title: 'FUD Buddy', text: caption, files: [file] };
+        if (!n.canShare || n.canShare(data)) {
+          await n.share(data);
+          return;
+        }
+      }
+
+      await n.share({ title: 'FUD Buddy', text: caption });
     } catch {
       // user cancelled
     }
@@ -116,7 +131,10 @@ export function ShareDialog({ open, onOpenChange, recommendations = [], initialI
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Share</DialogTitle>
-          <DialogDescription>Download a card, copy the caption, and post wherever.</DialogDescription>
+          <DialogDescription>
+            Download a card, copy the caption, and post. If you have Instagram/Facebook installed and you’re signed in,
+            “Share…” can hand it off directly.
+          </DialogDescription>
         </DialogHeader>
 
         {recommendations.length > 1 ? (
@@ -151,7 +169,7 @@ export function ShareDialog({ open, onOpenChange, recommendations = [], initialI
           {'share' in navigator ? (
             <Button type="button" variant="outline" onClick={handleWebShare} disabled={!caption} className="gap-2">
               <Share2 className="h-4 w-4" />
-              Share...
+              Share…
             </Button>
           ) : null}
         </div>
@@ -171,8 +189,7 @@ export function ShareDialog({ open, onOpenChange, recommendations = [], initialI
             </a>
           </div>
           <div className="mt-2 text-xs text-muted-foreground">
-            Web apps can't post directly to Instagram/Facebook without OAuth + platform permissions.
-            Download + paste is the fast path.
+            No account connection needed for sharing. If you aren’t logged in, Instagram/Facebook will prompt you.
           </div>
         </div>
 

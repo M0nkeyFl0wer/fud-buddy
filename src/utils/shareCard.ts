@@ -116,6 +116,19 @@ export function renderShareCardSvg(data: ShareCardData): string {
 }
 
 export async function downloadShareCardPng(svg: string, fileName: string): Promise<void> {
+  const blob = await renderShareCardPngBlob(svg);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+export async function renderShareCardPngBlob(svg: string): Promise<Blob> {
   const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(svgBlob);
 
@@ -138,11 +151,17 @@ export async function downloadShareCardPng(svg: string, fileName: string): Promi
     if (!ctx) throw new Error('Canvas unavailable');
     ctx.drawImage(img, 0, 0);
 
-    const pngUrl = canvas.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = pngUrl;
-    a.download = fileName;
-    a.click();
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((b) => {
+        if (!b) {
+          reject(new Error('Failed to encode PNG'));
+          return;
+        }
+        resolve(b);
+      }, 'image/png');
+    });
+
+    return blob;
   } finally {
     URL.revokeObjectURL(url);
   }
