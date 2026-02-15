@@ -29,8 +29,13 @@ Upload a local video to the remote host:
 ./scripts/push-video.sh REMOTE_USER@REMOTE_HOST ./recordings/fud-demo.mp4
 ```
 
-Run processing (default command is shown by `--help`). You can override the remote command
-to run anything you want (Whisper, frame extraction, a VLM, etc.):
+Run processing. By default this produces:
+- `ffprobe.json`
+- `audio_16k.wav` (if ffmpeg is available)
+- `thumbs/*.jpg` (if ffmpeg is available; one every 10s by default)
+
+You can override the remote command to run anything you want (Whisper, frame extraction,
+a VLM, etc.):
 
 ```bash
 REMOTE_PROCESS_CMD='python3 -m your_module.process_video --input "$REMOTE_INPUT" --out "$REMOTE_OUT"'
