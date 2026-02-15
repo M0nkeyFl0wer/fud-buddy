@@ -723,6 +723,56 @@ async def search_web(
     return []
 
 
+async def search_images(
+    query: str, client: Optional[httpx.AsyncClient] = None
+) -> list[dict]:
+    """SearxNG image search.
+
+    Returns items with url + img_src/thumbnail_src when available.
+    """
+
+    if not SEARXNG_URL:
+        return []
+
+    try:
+        if client is None:
+            async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as c:
+                return await search_images(query, client=c)
+
+        resp = await client.get(
+            f"{SEARXNG_URL.rstrip('/')}/search",
+            params={
+                "q": query,
+                "format": "json",
+                "language": "en",
+                "safesearch": "1",
+                "categories": "images",
+            },
+        )
+        if resp.status_code != 200:
+            return []
+
+        payload = resp.json()
+        results = payload.get("results", [])
+        out: list[dict] = []
+        if isinstance(results, list):
+            for r in results[:16]:
+                if not isinstance(r, dict):
+                    continue
+                out.append(
+                    {
+                        "title": r.get("title") or "",
+                        "url": r.get("url") or "",
+                        "img_src": r.get("img_src") or "",
+                        "thumbnail_src": r.get("thumbnail_src") or "",
+                        "engine": r.get("engine") or "",
+                    }
+                )
+        return out
+    except Exception:
+        return []
+
+
 def _sse(data: Any) -> dict:
     # EventSourceResponse will serialize dict -> SSE lines. We always send JSON in `data`.
     return {"data": json.dumps(data)}
@@ -923,8 +973,86 @@ def _is_bad_source_url(url: str) -> bool:
             "yelp.",
             "opentable.",
             "wanderlog.",
+            "pinterest.",
         )
     )
+
+
+def _pick_image_url(item: dict) -> str:
+    # Prefer direct image url if present.
+    img = str(item.get("img_src") or "").strip()
+    if img.startswith("http"):
+        return img
+    thumb = str(item.get("thumbnail_src") or "").strip()
+    if thumb.startswith("http"):
+        return thumb
+    return ""
+
+
+def _is_bad_image_url(url: str) -> bool:
+    u = (url or "").lower()
+    if not u.startswith("http"):
+        return True
+    if any(x in u for x in ("logo", "banner", "header", "icon", ".svg")):
+        return True
+    if _is_bad_source_url(u):
+        return True
+    return False
+
+
+def _clean_snippet(text: str) -> str:
+    s = text or ""
+    # Some engines include highlight markers.
+    s = s.replace("\ue000", "").replace("\ue001", "")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _extract_place_chatter(name: str, results: list[dict]) -> list[dict]:
+    """Return a few verbatim snippet highlights for this place."""
+
+    if not name:
+        return []
+    n = name.lower()
+    out: list[dict] = []
+    for r in results:
+        title = _clean_snippet(str(r.get("title") or ""))
+        content = _clean_snippet(str(r.get("content") or ""))
+        url = str(r.get("url") or "").strip()
+        if not url:
+            continue
+        hay = (title + " " + content).lower()
+        if n not in hay:
+            continue
+        snippet = content or title
+        if not snippet:
+            continue
+        out.append({"text": snippet[:180], "url": url, "title": title[:120]})
+        if len(out) >= 2:
+            break
+    return out
+
+
+def _extract_signals(results: list[dict]) -> list[str]:
+    joined = " ".join(
+        [
+            _clean_snippet(str(r.get("title") or ""))
+            + " "
+            + _clean_snippet(str(r.get("content") or ""))
+            for r in results[:10]
+        ]
+    ).lower()
+
+    signals: list[str] = []
+    if any(k in joined for k in ("beach", "waterfront", "lake", "shore")):
+        signals.append("beach / waterfront")
+    if any(k in joined for k in ("patio", "view", "views", "sunset")):
+        signals.append("patio / view")
+    if "live music" in joined:
+        signals.append("live music")
+    if any(k in joined for k in ("tourist", "busy", "lineup", "crowded")):
+        signals.append("popular spot")
+    return signals
 
 
 def _normalize_recommendations(items: list) -> list[dict]:
@@ -1260,6 +1388,20 @@ Rules:
             recs.append(rec_a)
             yield _sse({"type": "option", "index": 0, "recommendation": rec_a})
 
+            # Attach verbatim snippet highlights + signals for UI grounding.
+            try:
+                place = (
+                    str(rest_a.get("name") or "") if isinstance(rest_a, dict) else ""
+                )
+                chatter = _extract_place_chatter(place, dedup)
+                signals = _extract_signals(chatter + dedup)
+                if chatter:
+                    rec_a["peopleSay"] = chatter
+                if signals:
+                    rec_a["signals"] = signals
+            except Exception:
+                pass
+
             yield _sse({"type": "status", "content": "Writing option B..."})
             text_b = await _llm_generate(
                 prompt_b,
@@ -1344,15 +1486,53 @@ Rules:
             recs.append(rec_b)
             yield _sse({"type": "option", "index": 1, "recommendation": rec_b})
 
+            try:
+                place = (
+                    str(rest_b.get("name") or "") if isinstance(rest_b, dict) else ""
+                )
+                chatter = _extract_place_chatter(place, dedup)
+                signals = _extract_signals(chatter + dedup)
+                if chatter:
+                    rec_b["peopleSay"] = chatter
+                if signals:
+                    rec_b["signals"] = signals
+            except Exception:
+                pass
+
             # Best-effort image URLs (parallel)
             async def _img_for(rec: dict) -> str:
                 rest = rec.get("restaurant") or {}
                 name = ""
                 address = ""
+                main = ""
                 if isinstance(rest, dict):
                     name = str(rest.get("name") or "")
                     address = str(rest.get("address") or "")
+
+                o = rec.get("order")
+                if isinstance(o, dict):
+                    main = str(o.get("main") or "")
                 chosen = ""
+
+                # First pass: image search biased toward the dish.
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=10.0, follow_redirects=True
+                    ) as c:
+                        q = f"{name} {address}"
+                        if main:
+                            q = f"{q} {main}"
+                        q = f"{q} photo"
+                        imgs = await search_images(q, client=c)
+                    for it in imgs[:10]:
+                        url = str(it.get("url") or "")
+                        if url and _is_bad_source_url(url):
+                            continue
+                        img_url = _pick_image_url(it)
+                        if img_url and not _is_bad_image_url(img_url):
+                            return img_url
+                except Exception:
+                    pass
                 for s in sources:
                     title = (s.get("title") or "").lower()
                     if name and name.lower() in title:
