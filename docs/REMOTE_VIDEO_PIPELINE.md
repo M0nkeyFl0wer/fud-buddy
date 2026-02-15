@@ -65,6 +65,14 @@ ENABLE_TRANSCRIBE=1 AUTO_INSTALL_TRANSCRIBE=1 \
   ./scripts/video-pipeline.sh REMOTE_USER@REMOTE_HOST ./recordings/fud-demo.mp4
 ```
 
+Once you have `transcript.txt` locally, you can run a local analysis step against the
+Ollama instance you tunneled (inference happens on the remote host):
+
+```bash
+OLLAMA_BASE_URL=http://127.0.0.1:11434 OLLAMA_MODEL=qwen2.5:latest \
+  ./scripts/analyze-transcript.py ./artifacts/demo/out/transcript.txt
+```
+
 ## What We Still Need To Decide
 
 To wire this into the app (instead of manual scripts), we need to know what "process video"
