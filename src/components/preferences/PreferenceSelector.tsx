@@ -220,24 +220,20 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
             </div>
           </div>
 
-          <div className="space-y-3">
-            <div className="text-center space-y-1">
+          <div className="space-y-2">
+            <div className="text-center">
               <h2 className="text-3xl font-bold">What's the vibe?</h2>
-              <p className="text-muted-foreground text-sm">Pick up to 2.</p>
             </div>
+            <p className="text-center text-muted-foreground text-xs">Pick up to 2.</p>
             <VibePicker selected={vibe} onChange={setVibe} max={2} />
           </div>
 
           <DietaryRestrictionsDropdown selected={dietary} onChange={setDietary} />
-
-          <p className="text-xs text-center text-muted-foreground">
-            One tap. Two options. Maximum smug satisfaction.
-          </p>
         </div>
       </div>
 
       <div className="sticky bottom-0 border-t bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-        <div className="max-w-lg mx-auto p-4">
+        <div className="max-w-lg mx-auto p-4 space-y-2">
           <Button
             onClick={handleSubmit}
             disabled={isLoading}
@@ -246,6 +242,9 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
           >
             {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : 'Find FUD'}
           </Button>
+          <p className="text-xs text-center text-muted-foreground">
+            One tap. Two options. Maximum smug satisfaction.
+          </p>
         </div>
       </div>
     </div>
