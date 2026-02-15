@@ -16,6 +16,7 @@ import ipaddress
 from urllib.parse import urlparse
 import time
 
+
 try:
     from psycopg_pool import AsyncConnectionPool
 except Exception:  # pragma: no cover
@@ -46,7 +47,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 # Optional: OpenRouter (OpenAI-compatible) for faster testing
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
 OPENROUTER_MAX_TOKENS = int(os.getenv("OPENROUTER_MAX_TOKENS", "700"))
 OPENROUTER_TIMEOUT_S = float(os.getenv("OPENROUTER_TIMEOUT_S", "45"))
 
@@ -91,6 +92,51 @@ def _resolve_openrouter_overrides(request: Request) -> tuple[str, str]:
         model = client_model
 
     return api_key, model
+
+
+async def _openrouter_list_models(api_key: str) -> list[str]:
+    if not api_key:
+        return []
+
+    url = f"{OPENROUTER_BASE_URL.rstrip('/')}/models"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+        "HTTP-Referer": "http://localhost",
+        "X-Title": "fud-buddy",
+    }
+
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        resp = await client.get(url, headers=headers)
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+
+    items = data.get("data")
+    if not isinstance(items, list):
+        return []
+
+    out: list[str] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        mid = it.get("id")
+        if isinstance(mid, str) and mid:
+            out.append(mid)
+    return out
+
+
+@app.get("/api/openrouter/models")
+async def list_openrouter_models(request: Request):
+    if not ALLOW_CLIENT_OPENROUTER:
+        raise HTTPException(status_code=403, detail="Client OpenRouter disabled")
+
+    api_key = _parse_bearer(request.headers.get("authorization") or "")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Missing bearer key")
+
+    models = await _openrouter_list_models(api_key)
+    return {"ok": True, "models": models}
 
 
 # Basic in-memory rate limiting (single-process demo)
@@ -297,9 +343,37 @@ async def _llm_generate(
         async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_S) as client:
             resp = await client.post(url, headers=headers, json=body)
             if resp.status_code != 200:
-                detail = resp.text[:800]
+                detail = resp.text[:1200]
+                suggestions: list[str] = []
+                try:
+                    if resp.status_code == 400 and "valid model" in detail.lower():
+                        all_models = await _openrouter_list_models(openrouter_key)
+                        q = str(body.get("model") or "")
+                        ql = q.lower()
+                        # Return a small set of close matches.
+                        suggestions = [
+                            m for m in all_models if ql.split("/")[-1] in m.lower()
+                        ][:12]
+                        if not suggestions:
+                            suggestions = [
+                                m
+                                for m in all_models
+                                if "gemini" in m.lower() and "flash" in m.lower()
+                            ][:12]
+                except Exception:
+                    suggestions = []
+
                 raise RuntimeError(
-                    f"openrouter_error status={resp.status_code} model={body.get('model')} detail={detail}"
+                    "openrouter_error "
+                    + json.dumps(
+                        {
+                            "status": resp.status_code,
+                            "model": body.get("model"),
+                            "detail": detail,
+                            "suggestions": suggestions,
+                        },
+                        ensure_ascii=True,
+                    )
                 )
 
             data = resp.json()
