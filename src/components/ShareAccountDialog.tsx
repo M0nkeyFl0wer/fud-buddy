@@ -14,9 +14,10 @@ type ShareAccountDialogProps = {
     restaurantName: string;
     dishName?: string;
   };
+  onSaved?: (profile: UserProfile) => void;
 };
 
-export function ShareAccountDialog({ open, onOpenChange, defaultName = '', preview }: ShareAccountDialogProps) {
+export function ShareAccountDialog({ open, onOpenChange, defaultName = '', preview, onSaved }: ShareAccountDialogProps) {
   const [saveHistory, setSaveHistory] = useState(true);
   const [showInOsint, setShowInOsint] = useState(true);
   const [name, setName] = useState(defaultName);
@@ -37,6 +38,8 @@ export function ShareAccountDialog({ open, onOpenChange, defaultName = '', previ
       consentShowInOsint: showInOsint,
     };
     saveUserProfile(profile);
+
+    onSaved?.(profile);
 
     if (showInOsint) {
       requestOsintExpandOnce();

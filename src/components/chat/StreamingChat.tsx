@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, RefreshCw, Sparkles, Copy, Check, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Sparkles, Copy, Check, ChevronLeft, ChevronRight, Share2, History, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { apiClient, Message, UserPreferences } from '@/services/api';
 import { SEARCHING_MESSAGES, RESULT_INTROS, PRICEY_INTROS, CHEAP_INTROS } from '@/services/messages';
 import LogoMark from '@/components/LogoMark';
 import { ShareAccountDialog } from '@/components/ShareAccountDialog';
 import { loadUserProfile } from '@/services/profile';
+import { upsertHistoryEntry, updateHistoryFeedback } from '@/services/history';
 
 interface StreamingChatProps {
   preferences: UserPreferences;
@@ -35,6 +37,7 @@ type Source = {
 };
 
 export function StreamingChat({ preferences, onBack, onGenerateImage }: StreamingChatProps) {
+  const navigate = useNavigate();
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -47,6 +50,7 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   const [showSources, setShowSources] = useState(false);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionCreatedAt, setSessionCreatedAt] = useState<string | null>(null);
   const [feedbackWent, setFeedbackWent] = useState<boolean | null>(null);
   const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
   const [feedbackComment, setFeedbackComment] = useState('');
@@ -63,6 +67,7 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
     setCurrentIndex(0);
 
     setSessionId(null);
+    setSessionCreatedAt(null);
     setSources([]);
     setShowSources(false);
     setFeedbackWent(null);
@@ -129,6 +134,7 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
           setRecommendations(event.recommendations);
           if (typeof event.sessionId === 'string') {
             setSessionId(event.sessionId);
+            setSessionCreatedAt(new Date().toISOString());
           }
 
           if (Array.isArray(event.sources)) {
@@ -209,6 +215,42 @@ ${rec.story}`;
 
   const previewDish = current?.dishes?.[0]?.name;
   const savedName = loadUserProfile()?.displayName || '';
+  const profile = loadUserProfile();
+
+  const persistSessionToHistory = useCallback((allow: boolean) => {
+    if (!allow) return;
+    if (!sessionId || recommendations.length === 0) return;
+    upsertHistoryEntry({
+      id: sessionId,
+      createdAt: sessionCreatedAt || new Date().toISOString(),
+      preferences,
+      recommendations,
+      sources,
+      feedback: {
+        rating: feedbackRating === null ? undefined : feedbackRating,
+        went: feedbackWent === null ? undefined : feedbackWent,
+        comment: feedbackComment.trim() || undefined,
+      },
+    });
+  }, [feedbackComment, feedbackRating, feedbackWent, preferences, recommendations, sessionCreatedAt, sessionId, sources]);
+
+  const quickThumb = async (liked: boolean) => {
+    const rating = liked ? 5 : 1;
+    setFeedbackRating(rating);
+
+    if (!sessionId) return;
+    updateHistoryFeedback(sessionId, { rating });
+
+    // Try backend if available; ignore if unavailable.
+    try {
+      await apiClient.post<Record<string, unknown>>('/api/feedback', {
+        session_id: sessionId,
+        rating,
+      });
+    } catch {
+      // noop
+    }
+  };
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -450,9 +492,38 @@ ${rec.story}`;
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copied ? 'Copied!' : 'Copy'}
             </Button>
+            <Button
+              variant={feedbackRating === 5 ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => void quickThumb(true)}
+              className="gap-2"
+              title="Thumbs up"
+            >
+              <ThumbsUp className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={feedbackRating === 1 ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => void quickThumb(false)}
+              className="gap-2"
+              title="Thumbs down"
+            >
+              <ThumbsDown className="w-4 h-4" />
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setIsShareOpen(true)} className="gap-2">
               <Share2 className="w-4 h-4" />
               Share
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/history')}
+              className="gap-2"
+              disabled={!profile?.consentSaveHistory}
+              title={profile?.consentSaveHistory ? 'View history' : 'Enable in Share + Save'}
+            >
+              <History className="w-4 h-4" />
+              History
             </Button>
             <Button variant="outline" size="sm" onClick={generateRecommendations} className="gap-2">
               <RefreshCw className="w-4 h-4" />
@@ -466,6 +537,9 @@ ${rec.story}`;
         open={isShareOpen}
         onOpenChange={setIsShareOpen}
         defaultName={savedName}
+        onSaved={(p) => {
+          persistSessionToHistory(Boolean(p.consentSaveHistory));
+        }}
         preview={
           current
             ? {
