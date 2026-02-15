@@ -7,6 +7,7 @@ import json
 import httpx
 from sse_starlette.sse import EventSourceResponse
 import uuid
+import re
 
 try:
     from psycopg_pool import AsyncConnectionPool
@@ -201,6 +202,10 @@ def _sse(data: Any) -> dict:
     return {"data": json.dumps(data)}
 
 
+def _looks_like_coords(s: str) -> bool:
+    return bool(re.match(r"^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$", s or ""))
+
+
 def _extract_json_array(text: str) -> Optional[list]:
     # Find the first JSON array in the text.
     import re
@@ -285,8 +290,14 @@ async def chat_stream(request: ChatRequest):
 
     async def event_generator():
         # Status updates
+        display_location = (
+            "your area" if _looks_like_coords(str(location)) else location
+        )
         yield _sse(
-            {"type": "status", "content": f"Searching for great spots in {location}..."}
+            {
+                "type": "status",
+                "content": f"Searching for great spots in {display_location}...",
+            }
         )
 
         # Build search queries (keep these tight; we just need candidates and context)
@@ -397,10 +408,17 @@ Rules:
                     },
                 ) as response:
                     if response.status_code != 200:
+                        detail = None
+                        try:
+                            body = await response.aread()
+                            detail = body.decode("utf-8", errors="replace")[:800]
+                        except Exception:
+                            detail = None
                         yield _sse(
                             {
                                 "type": "error",
                                 "message": f"LLM error: {response.status_code}",
+                                "detail": detail,
                             }
                         )
                         yield _sse({"type": "done"})
