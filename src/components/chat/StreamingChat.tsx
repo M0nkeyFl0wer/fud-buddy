@@ -23,7 +23,23 @@ interface Recommendation {
     rating?: number;
     priceRange: string;
   };
-  dishes: {
+  whatToWear?: string;
+  order?: {
+    main?: string;
+    side?: string;
+    drink?: string;
+  };
+  backupOrder?: {
+    main?: string;
+    side?: string;
+    drink?: string;
+  };
+  maps?: {
+    google?: string;
+    apple?: string;
+  };
+  imageUrl?: string;
+  dishes?: {
     name: string;
     description: string;
   }[];
@@ -197,14 +213,27 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
   const handleCopy = () => {
     const rec = recommendations[currentIndex];
     if (!rec) return;
+
+    const orderLines = rec.order
+      ? [
+          rec.order.main ? `Main: ${rec.order.main}` : null,
+          rec.order.side ? `Side: ${rec.order.side}` : null,
+          rec.order.drink ? `Drink: ${rec.order.drink}` : null,
+        ].filter(Boolean)
+      : [];
     
+    const dishesText = rec.dishes?.map(d => `- ${d.name}: ${d.description}`).join('\n') || '';
+    const orderText = orderLines.length > 0 ? orderLines.map((l) => `- ${l}`).join('\n') : dishesText;
+
     const text = `**${rec.restaurant.name}** - ${rec.restaurant.priceRange}
-${rec.restaurant.address}
+ ${rec.restaurant.address}
 
-**What to get:**
-${rec.dishes.map(d => `- ${d.name}: ${d.description}`).join('\n')}
+${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
 
-${rec.story}`;
+ **What to get:**
+ ${orderText}
+
+ ${rec.story}`;
     
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -213,7 +242,7 @@ ${rec.story}`;
 
   const current = recommendations[currentIndex];
 
-  const previewDish = current?.dishes?.[0]?.name;
+  const previewDish = current?.order?.main || current?.dishes?.[0]?.name;
   const savedName = loadUserProfile()?.displayName || '';
   const profile = loadUserProfile();
 
@@ -246,6 +275,20 @@ ${rec.story}`;
       await apiClient.post<Record<string, unknown>>('/api/feedback', {
         session_id: sessionId,
         rating,
+      });
+    } catch {
+      // noop
+    }
+  };
+
+  const markWent = async (went: boolean) => {
+    setFeedbackWent(went);
+    if (!sessionId) return;
+    updateHistoryFeedback(sessionId, { went });
+    try {
+      await apiClient.post<Record<string, unknown>>('/api/feedback', {
+        session_id: sessionId,
+        went,
       });
     } catch {
       // noop
@@ -331,6 +374,16 @@ ${rec.story}`;
 
             {current && (
               <Card className="p-6 space-y-4">
+                {current.imageUrl ? (
+                  <div className="-mx-6 -mt-6">
+                    <img
+                      src={current.imageUrl}
+                      alt=""
+                      className="h-44 w-full object-cover rounded-t-lg"
+                      loading="lazy"
+                    />
+                  </div>
+                ) : null}
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground italic mb-3">
                     "{resultIntro}"
@@ -344,20 +397,67 @@ ${rec.story}`;
                   <p className="text-sm text-muted-foreground">
                     {current.restaurant.address}
                   </p>
+
+                  {current.maps?.google || current.maps?.apple ? (
+                    <div className="mt-3 flex flex-wrap justify-center gap-2">
+                      {current.maps.google ? (
+                        <a href={current.maps.google} target="_blank" rel="noreferrer">
+                          <Button type="button" variant="outline" size="sm">Google Maps</Button>
+                        </a>
+                      ) : null}
+                      {current.maps.apple ? (
+                        <a href={current.maps.apple} target="_blank" rel="noreferrer">
+                          <Button type="button" variant="outline" size="sm">Apple Maps</Button>
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
 
-                <div>
-                  <h4 className="font-semibold mb-2">What to get:</h4>
-                  <ul className="space-y-2">
-                    {current.dishes.map((dish, i) => (
-                      <li key={i} className="flex gap-2">
-                        <span className="text-primary">•</span>
-                        <span>
-                          <strong>{dish.name}</strong> — {dish.description}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                {current.whatToWear ? (
+                  <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                    <span className="font-semibold">What to wear:</span> {current.whatToWear}
+                  </div>
+                ) : null}
+
+                <div className="space-y-3">
+                  {(current.order?.main || current.order?.side || current.order?.drink) ? (
+                    <div>
+                      <h4 className="font-semibold mb-2">Order this:</h4>
+                      <div className="grid gap-1 text-sm">
+                        {current.order?.main ? <div><span className="text-muted-foreground">Main:</span> {current.order.main}</div> : null}
+                        {current.order?.side ? <div><span className="text-muted-foreground">Side:</span> {current.order.side}</div> : null}
+                        {current.order?.drink ? <div><span className="text-muted-foreground">Drink:</span> {current.order.drink}</div> : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {(current.backupOrder?.main || current.backupOrder?.side || current.backupOrder?.drink) ? (
+                    <div>
+                      <h4 className="font-semibold mb-2">Backup:</h4>
+                      <div className="grid gap-1 text-sm">
+                        {current.backupOrder?.main ? <div><span className="text-muted-foreground">Main:</span> {current.backupOrder.main}</div> : null}
+                        {current.backupOrder?.side ? <div><span className="text-muted-foreground">Side:</span> {current.backupOrder.side}</div> : null}
+                        {current.backupOrder?.drink ? <div><span className="text-muted-foreground">Drink:</span> {current.backupOrder.drink}</div> : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {(!current.order?.main && current.dishes && current.dishes.length > 0) ? (
+                    <div>
+                      <h4 className="font-semibold mb-2">What to get:</h4>
+                      <ul className="space-y-2">
+                        {current.dishes.map((dish, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span className="text-primary">•</span>
+                            <span>
+                              <strong>{dish.name}</strong> — {dish.description}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="border-t pt-4">
@@ -410,88 +510,30 @@ ${rec.story}`;
 
       {recommendations.length > 0 && !isStreaming && (
         <div className="border-t">
-          {sessionId && (
-            <div className="p-4">
-              <Card className="p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-semibold">How'd it go?</div>
-                    <div className="text-xs text-muted-foreground">
-                      Quick feedback helps tune the vibe and catch bad recs.
-                    </div>
-                  </div>
-                  <div className="text-[10px] text-muted-foreground font-mono">{sessionId.slice(0, 8)}</div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant={feedbackWent === true ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setFeedbackWent(true)}
-                    disabled={feedbackSent}
-                  >
-                    I went
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={feedbackWent === false ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setFeedbackWent(false)}
-                    disabled={feedbackSent}
-                  >
-                    Didn't go
-                  </Button>
-                </div>
-
-                <div className="mt-3">
-                  <div className="text-xs text-muted-foreground mb-2">Rating</div>
-                  <div className="flex flex-wrap gap-2">
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <Button
-                        key={n}
-                        type="button"
-                        variant={feedbackRating === n ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setFeedbackRating(n)}
-                        disabled={feedbackSent}
-                      >
-                        {n}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <div className="text-xs text-muted-foreground mb-2">Notes (optional)</div>
-                  <textarea
-                    value={feedbackComment}
-                    onChange={(e) => setFeedbackComment(e.target.value)}
-                    placeholder="What landed? What was off?"
-                    className="w-full min-h-[80px] rounded-md border bg-background p-3 text-sm"
-                    disabled={feedbackSent}
-                  />
-                </div>
-
-                {feedbackError && (
-                  <div className="mt-2 text-sm text-destructive">{feedbackError}</div>
-                )}
-
-                <div className="mt-3 flex items-center gap-2">
-                  <Button type="button" onClick={submitFeedback} disabled={feedbackSent || isSendingFeedback}>
-                    {feedbackSent ? 'Thanks!' : isSendingFeedback ? 'Sending...' : 'Send feedback'}
-                  </Button>
-                  {feedbackSent && <div className="text-xs text-muted-foreground">Saved.</div>}
-                </div>
-              </Card>
-            </div>
-          )}
-
-          <div className="p-4 flex gap-2">
+          <div className="p-4 flex flex-wrap gap-2 items-center">
             <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copied ? 'Copied!' : 'Copy'}
             </Button>
+
+            <span className="text-xs text-muted-foreground ml-1">Did you go?</span>
+            <Button
+              type="button"
+              variant={feedbackWent === true ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => void markWent(true)}
+            >
+              Yep
+            </Button>
+            <Button
+              type="button"
+              variant={feedbackWent === false ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => void markWent(false)}
+            >
+              Nope
+            </Button>
+
             <Button
               variant={feedbackRating === 5 ? 'default' : 'outline'}
               size="sm"

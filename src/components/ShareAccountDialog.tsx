@@ -85,7 +85,6 @@ export function ShareAccountDialog({ open, onOpenChange, defaultName = '', previ
             <Checkbox checked={saveHistory} onCheckedChange={(v) => setSaveHistory(Boolean(v))} />
             <div className="leading-tight">
               <div className="text-sm font-medium">Save my history on this device</div>
-              <div className="text-xs text-muted-foreground">Stores your sessions locally (no account needed).</div>
             </div>
           </div>
 
@@ -93,17 +92,13 @@ export function ShareAccountDialog({ open, onOpenChange, defaultName = '', previ
             <Checkbox checked={showInOsint} onCheckedChange={(v) => setShowInOsint(Boolean(v))} />
             <div className="leading-tight">
               <div className="text-sm font-medium">Show my name in “What we know about you”</div>
-              <div className="text-xs text-muted-foreground">Only with permission. You can delete it anytime.</div>
             </div>
           </div>
 
           {showInOsint && (
             <div className="space-y-2">
-              <div className="text-sm font-medium">Name (optional)</div>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Alex" />
-              <div className="text-[11px] text-muted-foreground">
-                No selfie upload needed. When social sign-in is enabled, we’ll use your profile photo (with permission).
-              </div>
+              <div className="text-sm font-medium">Name</div>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Alex" />
             </div>
           )}
 
