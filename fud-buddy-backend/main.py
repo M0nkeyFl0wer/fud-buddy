@@ -15,9 +15,16 @@ except Exception:  # pragma: no cover
 
 app = FastAPI(title="FUD Buddy API")
 
+cors_origins_raw = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080",
+)
+cors_origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
+allow_origins = ["*"] if cors_origins == ["*"] else cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allow_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
