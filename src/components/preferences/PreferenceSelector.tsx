@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { VibePicker } from './VibePicker';
 import { MapPin, Loader2, Sparkles } from 'lucide-react';
@@ -23,7 +23,62 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
     setMessage(ONBOARDING_MESSAGES[Math.floor(Math.random() * ONBOARDING_MESSAGES.length)]);
   }, []);
 
-  const detectLocation = async () => {
+  const reverseGeocode = useCallback(async (lat: number, lon: number): Promise<string> => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 4500);
+    try {
+      const url = new URL('https://nominatim.openstreetmap.org/reverse');
+      url.searchParams.set('format', 'jsonv2');
+      url.searchParams.set('lat', String(lat));
+      url.searchParams.set('lon', String(lon));
+
+      const resp = await fetch(url.toString(), {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'Accept-Language': 'en',
+        },
+      });
+      if (!resp.ok) return '';
+      const data: unknown = await resp.json();
+      if (!data || typeof data !== 'object') return '';
+
+      const addr = (data as Record<string, unknown>).address;
+      const displayName = (data as Record<string, unknown>).display_name;
+      if (addr && typeof addr === 'object') {
+        const a = addr as Record<string, unknown>;
+        const city =
+          (typeof a.city === 'string' && a.city) ||
+          (typeof a.town === 'string' && a.town) ||
+          (typeof a.village === 'string' && a.village) ||
+          (typeof a.hamlet === 'string' && a.hamlet) ||
+          (typeof a.county === 'string' && a.county) ||
+          '';
+        const state =
+          (typeof a.state === 'string' && a.state) ||
+          (typeof a.region === 'string' && a.region) ||
+          (typeof a.state_district === 'string' && a.state_district) ||
+          '';
+        const countryCode = typeof a.country_code === 'string' ? a.country_code.toUpperCase() : '';
+
+        if (city && state) return `${city}, ${state}`;
+        if (city && countryCode) return `${city}, ${countryCode}`;
+        if (city) return city;
+      }
+
+      if (typeof displayName === 'string' && displayName) {
+        return displayName.split(',').slice(0, 3).join(', ').trim();
+      }
+
+      return '';
+    } catch {
+      return '';
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, []);
+
+  const detectLocation = useCallback(async () => {
     setIsDetectingLocation(true);
 
     if ('geolocation' in navigator) {
@@ -34,7 +89,11 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
             timeout: 5000,
           });
         });
-        setLocation(`${position.coords.latitude.toFixed(2)}, ${position.coords.longitude.toFixed(2)}`);
+
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        const name = await reverseGeocode(lat, lon);
+        setLocation(name || `${lat.toFixed(2)}, ${lon.toFixed(2)}`);
       } catch {
         try {
           const response = await fetch('https://ipapi.co/json/');
@@ -55,11 +114,11 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
     }
 
     setIsDetectingLocation(false);
-  };
+  }, [reverseGeocode]);
 
   useEffect(() => {
     detectLocation();
-  }, []);
+  }, [detectLocation]);
 
   const handleSubmit = () => {
     onSubmit({
