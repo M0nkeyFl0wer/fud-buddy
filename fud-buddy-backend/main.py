@@ -73,6 +73,15 @@ def _sanitize_model_id(raw: str) -> str:
     # OpenRouter ids: vendor/model or vendor/model:variant
     if not re.match(r"^[a-z0-9_.-]+/[a-z0-9_.:-]+$", s, re.IGNORECASE):
         return ""
+
+    # Common aliases / friendly ids -> OpenRouter concrete ids.
+    alias_map = {
+        "google/gemini-2.0-flash": "google/gemini-2.0-flash-001",
+        "google/gemini-2.0-flash-lite": "google/gemini-2.0-flash-lite-001",
+    }
+    lowered = s.lower()
+    if lowered in alias_map:
+        return alias_map[lowered]
     return s
 
 
