@@ -404,6 +404,8 @@ Rules:
                         "stream": True,
                         "options": {
                             "temperature": 0.6,
+                            # Prevent runaway generations that stall the UI.
+                            "num_predict": 700,
                         },
                     },
                 ) as response:
@@ -418,6 +420,7 @@ Rules:
                             {
                                 "type": "error",
                                 "message": f"LLM error: {response.status_code}",
+                                "model": OLLAMA_MODEL,
                                 "detail": detail,
                             }
                         )
