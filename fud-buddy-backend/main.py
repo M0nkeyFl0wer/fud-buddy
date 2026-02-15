@@ -8,6 +8,9 @@ import httpx
 from sse_starlette.sse import EventSourceResponse
 import uuid
 import re
+import asyncio
+from urllib.parse import quote_plus
+import html
 
 try:
     from psycopg_pool import AsyncConnectionPool
@@ -35,6 +38,150 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
 SEARXNG_URL = os.getenv("SEARXNG_URL", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+# Optional: OpenRouter (OpenAI-compatible) for faster testing
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_MAX_TOKENS = int(os.getenv("OPENROUTER_MAX_TOKENS", "700"))
+OPENROUTER_TIMEOUT_S = float(os.getenv("OPENROUTER_TIMEOUT_S", "45"))
+
+
+async def _openrouter_stream(prompt: str):
+    """Yield streamed delta text from OpenRouter."""
+
+    url = f"{OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost",
+        "X-Title": "fud-buddy",
+    }
+    body = {
+        "model": OPENROUTER_MODEL,
+        "temperature": 0.6,
+        "max_tokens": OPENROUTER_MAX_TOKENS,
+        "stream": True,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+    }
+
+    full = ""
+    async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_S) as client:
+        async with client.stream("POST", url, headers=headers, json=body) as resp:
+            if resp.status_code != 200:
+                detail = ""
+                try:
+                    body_bytes = await resp.aread()
+                    detail = body_bytes.decode("utf-8", errors="replace")[:800]
+                except Exception:
+                    detail = ""
+                raise RuntimeError(
+                    f"openrouter_error status={resp.status_code} model={OPENROUTER_MODEL} detail={detail}"
+                )
+
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    payload = json.loads(data)
+                except Exception:
+                    continue
+
+                try:
+                    delta = (
+                        (payload.get("choices") or [{}])[0]
+                        .get("delta", {})
+                        .get("content")
+                    )
+                except Exception:
+                    delta = None
+
+                if isinstance(delta, str) and delta:
+                    full += delta
+                    yield delta
+
+    # No return: async generator
+
+
+async def _llm_generate(prompt: str) -> str:
+    """Generate text with either OpenRouter (if configured) or Ollama."""
+
+    if OPENROUTER_API_KEY:
+        url = f"{OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            # OpenRouter recommends these for attribution/rate-limiting hygiene.
+            "HTTP-Referer": "http://localhost",
+            "X-Title": "fud-buddy",
+        }
+        body = {
+            "model": OPENROUTER_MODEL,
+            "temperature": 0.6,
+            "max_tokens": OPENROUTER_MAX_TOKENS,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+        }
+
+        async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_S) as client:
+            resp = await client.post(url, headers=headers, json=body)
+            if resp.status_code != 200:
+                detail = resp.text[:800]
+                raise RuntimeError(
+                    f"openrouter_error status={resp.status_code} model={OPENROUTER_MODEL} detail={detail}"
+                )
+
+            data = resp.json()
+            choices = data.get("choices") or []
+            if not choices:
+                raise RuntimeError("openrouter_error: no choices")
+
+            msg = (choices[0] or {}).get("message") or {}
+            content = msg.get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise RuntimeError("openrouter_error: empty content")
+            return content.strip()
+
+    # Default: Ollama
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(
+            f"{OLLAMA_BASE_URL.rstrip('/')}/api/generate",
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.5,
+                    "num_predict": 900,
+                },
+            },
+        )
+
+    if resp.status_code != 200:
+        detail = ""
+        try:
+            detail = resp.text[:800]
+        except Exception:
+            detail = ""
+        raise RuntimeError(
+            f"ollama_error status={resp.status_code} model={OLLAMA_MODEL} detail={detail}"
+        )
+
+    payload = resp.json()
+    return str(payload.get("response") or "").strip()
+
 
 db_pool = None
 
@@ -219,7 +366,9 @@ async def _persist_feedback(feedback_id: uuid.UUID, payload: FeedbackRequest) ->
         await conn.commit()
 
 
-async def search_web(query: str) -> list[dict]:
+async def search_web(
+    query: str, client: Optional[httpx.AsyncClient] = None
+) -> list[dict]:
     """Return a small list of search results.
 
     Prefers SearxNG (self-hosted) when SEARXNG_URL is set.
@@ -228,30 +377,33 @@ async def search_web(query: str) -> list[dict]:
 
     if SEARXNG_URL:
         try:
-            async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
-                resp = await client.get(
-                    f"{SEARXNG_URL.rstrip('/')}/search",
-                    params={
-                        "q": query,
-                        "format": "json",
-                        "language": "en",
-                        "safesearch": "1",
-                    },
-                )
-                if resp.status_code == 200:
-                    payload = resp.json()
-                    results = payload.get("results", [])
-                    out: list[dict] = []
-                    for r in results[:8]:
-                        out.append(
-                            {
-                                "title": r.get("title") or "",
-                                "url": r.get("url") or "",
-                                "content": r.get("content") or "",
-                                "engine": r.get("engine") or "",
-                            }
-                        )
-                    return out
+            if client is None:
+                async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as c:
+                    return await search_web(query, client=c)
+
+            resp = await client.get(
+                f"{SEARXNG_URL.rstrip('/')}/search",
+                params={
+                    "q": query,
+                    "format": "json",
+                    "language": "en",
+                    "safesearch": "1",
+                },
+            )
+            if resp.status_code == 200:
+                payload = resp.json()
+                results = payload.get("results", [])
+                out: list[dict] = []
+                for r in results[:6]:
+                    out.append(
+                        {
+                            "title": r.get("title") or "",
+                            "url": r.get("url") or "",
+                            "content": r.get("content") or "",
+                            "engine": r.get("engine") or "",
+                        }
+                    )
+                return out
         except Exception:
             # If SearxNG is down, fall back.
             pass
@@ -283,14 +435,110 @@ def _extract_json_array(text: str) -> Optional[list]:
     return parsed if isinstance(parsed, list) else None
 
 
+def _extract_json_value(text: str) -> Optional[Any]:
+    """Extract a JSON value from text.
+
+    Tries full json.loads first, then falls back to locating the first array/object.
+    """
+
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # Find first array
+    m = re.search(r"\[[\s\S]*\]", text)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except Exception:
+            return None
+
+    # Find first object
+    m = re.search(r"\{[\s\S]*\}", text)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except Exception:
+            return None
+    return None
+
+
+def _maps_links(name: str, address: str) -> dict:
+    q = " ".join([p for p in [name.strip(), address.strip()] if p]).strip()
+    if not q:
+        return {"google": "", "apple": ""}
+    enc = quote_plus(q)
+    return {
+        "google": f"https://www.google.com/maps/search/?api=1&query={enc}",
+        "apple": f"http://maps.apple.com/?q={enc}",
+    }
+
+
+async def _og_image_from_url(url: str) -> str:
+    if not url:
+        return ""
+
+    try:
+        async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"Accept": "text/html"})
+            if resp.status_code != 200:
+                return ""
+            page_html = resp.text
+    except Exception:
+        return ""
+
+    # Very small best-effort parse (no deps).
+    def _extract_from_meta(tag_regex: str) -> str:
+        mt = re.search(tag_regex, page_html, re.IGNORECASE)
+        if not mt:
+            return ""
+        tag = mt.group(0)
+        mc = re.search(r'content=["\']([^"\']+)["\']', tag, re.IGNORECASE)
+        if not mc:
+            return ""
+        return html.unescape(mc.group(1).strip())
+
+    # Look for a meta tag that identifies the image type, then pull its content.
+    og = _extract_from_meta(r'<meta[^>]+property=["\']og:image["\'][^>]*>')
+    if og:
+        return og
+
+    tw = _extract_from_meta(r'<meta[^>]+name=["\']twitter:image["\'][^>]*>')
+    if tw:
+        return tw
+    return ""
+
+
+def _is_bad_source_url(url: str) -> bool:
+    u = (url or "").lower()
+    return any(
+        bad in u
+        for bad in (
+            "facebook.com",
+            "m.facebook.com",
+            "instagram.com",
+            "reddit.com",
+            "yelp.",
+            "opentable.",
+            "wanderlog.",
+        )
+    )
+
+
 def _normalize_recommendations(items: list) -> list[dict]:
     """Best-effort normalization to the app's expected schema.
 
-    Expected per item:
+    Expected per item (v2):
       {
         "restaurant": {"name": str, "address": str, "priceRange": str, "rating": number?},
-        "dishes": [{"name": str, "description": str}],
-        "story": str
+        "whatToWear": str,
+        "order": {"main": str, "side": str, "drink": str},
+        "backupOrder": {"main": str, "side": str, "drink": str},
+        "story": str,
+        "imageUrl": str?
       }
 
     Some models incorrectly nest dishes/story under restaurant. We lift them.
@@ -304,6 +552,11 @@ def _normalize_recommendations(items: list) -> list[dict]:
         restaurant = raw.get("restaurant")
         dishes = raw.get("dishes")
         story = raw.get("story")
+
+        what_to_wear = raw.get("whatToWear") or raw.get("wear") or ""
+        order = raw.get("order")
+        backup_order = raw.get("backupOrder") or raw.get("backup")
+        image_url = raw.get("imageUrl") or raw.get("image") or ""
 
         if isinstance(restaurant, dict):
             # Lift nested fields if present.
@@ -324,6 +577,7 @@ def _normalize_recommendations(items: list) -> list[dict]:
         else:
             restaurant = {"name": "", "address": "", "priceRange": "", "rating": None}
 
+        # Legacy dish list fallback -> build a basic order object.
         norm_dishes: list[dict] = []
         if isinstance(dishes, list):
             for d in dishes[:4]:
@@ -335,10 +589,45 @@ def _normalize_recommendations(items: list) -> list[dict]:
                     continue
                 norm_dishes.append({"name": str(name), "description": str(desc)})
 
+        def _norm_order(obj: Any) -> dict:
+            if not isinstance(obj, dict):
+                return {"main": "", "side": "", "drink": ""}
+            return {
+                "main": str(obj.get("main") or ""),
+                "side": str(obj.get("side") or ""),
+                "drink": str(obj.get("drink") or ""),
+            }
+
+        norm_order = _norm_order(order)
+        norm_backup = _norm_order(backup_order)
+
+        if not norm_order["main"] and norm_dishes:
+            # Best-effort mapping when only dishes exist.
+            norm_order["main"] = str(norm_dishes[0].get("name") or "")
+            if len(norm_dishes) > 1:
+                norm_order["side"] = str(norm_dishes[1].get("name") or "")
+            if len(norm_dishes) > 2:
+                norm_order["drink"] = str(norm_dishes[2].get("name") or "")
+
         if not isinstance(story, str):
             story = ""
 
-        out.append({"restaurant": restaurant, "dishes": norm_dishes, "story": story})
+        if not isinstance(what_to_wear, str):
+            what_to_wear = ""
+        if not isinstance(image_url, str):
+            image_url = ""
+
+        out.append(
+            {
+                "restaurant": restaurant,
+                "whatToWear": what_to_wear,
+                "order": norm_order,
+                "backupOrder": norm_backup,
+                "dishes": norm_dishes,
+                "story": story,
+                "imageUrl": image_url,
+            }
+        )
 
     return out
 
@@ -364,20 +653,34 @@ async def chat_stream(request: ChatRequest):
         )
 
         # Build search queries (keep these tight; we just need candidates and context)
+        # Minimize queries for responsiveness.
+        base_query = (
+            f"restaurants {location}"
+            if cuisine == "any"
+            else f"{cuisine} restaurants {location}"
+        )
         searches = [
-            f"best {cuisine} restaurants {location}",
-            f"site:reddit.com {cuisine} {location} best restaurant",
-            f"top rated restaurants {location} {cuisine}",
+            f"best {vibe} {base_query}",
+            f"top rated {base_query}",
         ]
 
         session_id = uuid.uuid4()
 
-        # Search
+        # Search (parallel + shared client)
         found: list[dict] = []
-        for query in searches:
-            results = await search_web(query)
+        async with httpx.AsyncClient(
+            timeout=12.0, follow_redirects=True
+        ) as search_client:
+            tasks = [search_web(q, client=search_client) for q in searches]
+            results_lists = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for results in results_lists:
+            if isinstance(results, BaseException):
+                continue
+            if not isinstance(results, list):
+                continue
             for r in results:
-                if r.get("url"):
+                if isinstance(r, dict) and r.get("url"):
                     found.append(r)
 
         # De-dupe by URL
@@ -407,22 +710,24 @@ async def chat_stream(request: ChatRequest):
                 "url": (r.get("url") or "").strip(),
                 "engine": (r.get("engine") or "").strip(),
             }
-            for r in dedup[:10]
+            for r in dedup[:6]
         ]
 
         search_context_lines: list[str] = []
-        for r in dedup[:10]:
+        for r in dedup[:6]:
             title = (r.get("title") or "").strip()
             url = (r.get("url") or "").strip()
             snippet = (r.get("content") or "").strip().replace("\n", " ")
             engine = (r.get("engine") or "").strip()
             if snippet:
-                snippet = snippet[:280]
+                snippet = snippet[:180]
             search_context_lines.append(f"- {title} ({engine})\n  {url}\n  {snippet}")
 
         search_context = "\n".join(search_context_lines)
 
-        yield _sse({"type": "status", "content": "Found some chatter. Summarizing..."})
+        yield _sse(
+            {"type": "status", "content": "Found some chatter. Cooking up two picks..."}
+        )
 
         # Use LLM to generate recommendations.
         # IMPORTANT: We do not fabricate private identity info; story focuses on the venue.
@@ -438,76 +743,41 @@ Web search results (snippets + URLs):
 {search_context}
 
 Task:
-Return exactly 2 restaurant recommendations based on what people are talking about.
-1) A cheaper/casual option.
-2) A pricier/special option.
+Return exactly 2 restaurant recommendations based on the web snippets.
+
+Each restaurant MUST include:
+- A short story (2-4 sentences) with personality, grounded in snippets.
+- A clear what-to-wear line.
+- Two meal options: an exact order and a backup order.
 
 CRITICAL output requirements:
 - Output MUST be a JSON array with exactly 2 objects.
-- Each object MUST have ONLY these top-level keys: restaurant, dishes, story.
+- Each object MUST have ONLY these top-level keys: restaurant, whatToWear, order, backupOrder, story.
 - restaurant MUST have keys: name, address, priceRange, rating.
-- dishes MUST be an array of 2-3 objects with keys: name, description.
+- whatToWear MUST be a short string.
+- order MUST have keys: main, side, drink.
+- backupOrder MUST have keys: main, side, drink.
 - story MUST be a short string (2-3 sentences).
-- Do NOT nest dishes or story inside restaurant.
 
 Rules:
-- Use real places from the search snippets when possible.
-- Keep story to 2-3 sentences and grounded in the provided links/snippets.
-- Output ONLY valid JSON. No markdown. No commentary."""
+- Prefer places that clearly appear in the snippets.
+- Keep story grounded in the snippets (no invented chefs/owners).
+- Output ONLY valid JSON array. No markdown. No extra keys."""
 
         try:
-            full_response = ""
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": context,
-                        "stream": True,
-                        "options": {
-                            "temperature": 0.6,
-                            # Prevent runaway generations that stall the UI.
-                            "num_predict": 700,
-                        },
-                    },
-                ) as response:
-                    if response.status_code != 200:
-                        detail = None
-                        try:
-                            body = await response.aread()
-                            detail = body.decode("utf-8", errors="replace")[:800]
-                        except Exception:
-                            detail = None
-                        yield _sse(
-                            {
-                                "type": "error",
-                                "message": f"LLM error: {response.status_code}",
-                                "model": OLLAMA_MODEL,
-                                "detail": detail,
-                            }
-                        )
-                        yield _sse({"type": "done"})
-                        return
+            yield _sse({"type": "status", "content": "Writing your two options..."})
+            full_response = await _llm_generate(context)
 
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        try:
-                            payload = json.loads(line)
-                        except Exception:
-                            continue
+            parsed = _extract_json_value(full_response)
 
-                        token = payload.get("response")
-                        if token:
-                            full_response += token
-                            # Stream the generated JSON text as a delta.
-                            yield _sse({"type": "delta", "content": token})
+            recommendations: Optional[list] = None
+            if isinstance(parsed, list):
+                recommendations = parsed
+            elif isinstance(parsed, dict) and isinstance(
+                parsed.get("recommendations"), list
+            ):
+                recommendations = parsed.get("recommendations")
 
-                        if payload.get("done"):
-                            break
-
-            recommendations = _extract_json_array(full_response)
             if recommendations is None:
                 yield _sse(
                     {
@@ -531,7 +801,59 @@ Rules:
                 yield _sse({"type": "done"})
                 return
 
-            await _persist_session(session_id, prefs, normalized[:2], sources=sources)
+            # Attach maps links + try to find OG images from the top sources.
+            recs = normalized[:2]
+            for r in recs:
+                rest = r.get("restaurant") or {}
+                if isinstance(rest, dict):
+                    r["maps"] = _maps_links(
+                        str(rest.get("name") or ""), str(rest.get("address") or "")
+                    )
+
+            # Best-effort image URLs (parallel)
+            async def _img_for(rec: dict) -> str:
+                rest = rec.get("restaurant") or {}
+                name = ""
+                address = ""
+                if isinstance(rest, dict):
+                    name = str(rest.get("name") or "")
+                    address = str(rest.get("address") or "")
+                chosen = ""
+                for s in sources:
+                    title = (s.get("title") or "").lower()
+                    if name and name.lower() in title:
+                        url = s.get("url") or ""
+                        if url and not _is_bad_source_url(str(url)):
+                            chosen = str(url)
+                            break
+
+                if not chosen and name:
+                    # Quick dedicated search for a better page to pull og:image from.
+                    try:
+                        async with httpx.AsyncClient(
+                            timeout=8.0, follow_redirects=True
+                        ) as c:
+                            hits = await search_web(f"{name} {address}", client=c)
+                        for h in hits:
+                            url = h.get("url") or ""
+                            if url and not _is_bad_source_url(str(url)):
+                                chosen = str(url)
+                                break
+                    except Exception:
+                        chosen = ""
+
+                if not chosen and sources:
+                    chosen = str(sources[0].get("url") or "")
+                return await _og_image_from_url(str(chosen))
+
+            imgs = await asyncio.gather(
+                *[_img_for(r) for r in recs], return_exceptions=True
+            )
+            for i, img in enumerate(imgs):
+                if isinstance(img, str) and img:
+                    recs[i]["imageUrl"] = img
+
+            await _persist_session(session_id, prefs, recs, sources=sources)
 
             # Send structured result so the frontend doesn't have to guess.
             yield _sse(
@@ -539,7 +861,7 @@ Rules:
                     "type": "result",
                     "sessionId": str(session_id),
                     "sources": sources,
-                    "recommendations": normalized[:2],
+                    "recommendations": recs,
                 }
             )
             yield _sse({"type": "done"})
