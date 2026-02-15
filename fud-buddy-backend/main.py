@@ -1502,7 +1502,52 @@ async def chat_stream(request: Request, payload: ChatRequest):
                     continue
             return default
 
-        def _travel_attempts_km(p: dict) -> list[float]:
+        def _is_dense_urban(loc: str) -> bool:
+            """Detect if location is a dense urban area (postal code or big city)."""
+            l = (loc or "").lower()
+            # Canadian postal codes (M5V, V6B, etc.)
+            if re.search(r"\b[a-z]\d[a-z]", l):
+                return True
+            # Major cities
+            urban_keywords = [
+                "toronto",
+                "vancouver",
+                "montreal",
+                "calgary",
+                "ottawa",
+                "edmonton",
+                "quebec",
+                "winnipeg",
+                "hamilton",
+                "kitchener",
+                "london",
+                "victoria",
+                "halifax",
+                "oshawa",
+                "windsor",
+                "saskatoon",
+                "regina",
+                "kelowna",
+                "barrie",
+                "guelph",
+                "downtown",
+                "midtown",
+                "chinatown",
+                "yaletown",
+                "kensington",
+                "annex",
+                "beaches",
+                "distillery",
+                "liberty village",
+            ]
+            return any(kw in l for kw in urban_keywords)
+
+        def _travel_attempts_km(p: dict, loc: str) -> list[float]:
+            # Walking speed: ~5km/h = 0.08 km/min
+            # Driving speed: ~60km/h = 1.0 km/min
+            is_urban = _is_dense_urban(loc)
+            speed_km_per_min = 0.08 if is_urban else TRAVEL_KM_PER_MIN
+
             max_min = _pref_float(
                 p,
                 "maxTravelMin",
@@ -1512,29 +1557,32 @@ async def chat_stream(request: Request, payload: ChatRequest):
                 default=0.0,
             )
             if max_min > 0:
-                base_km = max_min * TRAVEL_KM_PER_MIN
+                base_km = max_min * speed_km_per_min
             else:
+                # Default: 10 min walking (0.8km) for urban, 20 min driving (20km) for rural
+                default_min = 10.0 if is_urban else 20.0
                 base_km = _pref_float(
                     p,
                     "maxTravelKm",
                     "max_travel_km",
                     "maxDistanceKm",
                     "max_distance_km",
-                    default=MAX_TRAVEL_KM_DEFAULT,
+                    default=default_min * speed_km_per_min,
                 )
 
-            # Widen in small increments (e.g. 20 -> 30 -> 40), never 20 -> 90.
-            step_km = 10.0
-            cap_km = min(MAX_TRAVEL_KM_CAP_DEFAULT, max(10.0, base_km) + 25.0)
+            # Urban: expand 0.8km -> 1.2km -> 1.6km (walking distances)
+            # Rural: expand 20km -> 30km -> 40km (driving distances)
+            step_km = 0.4 if is_urban else 10.0
+            cap_km = min(MAX_TRAVEL_KM_CAP_DEFAULT, max(0.5, base_km) + (step_km * 2))
 
             attempts: list[float] = []
             for k in (base_km, base_km + step_km, base_km + 2 * step_km):
-                km = float(max(5.0, min(cap_km, k)))
+                km = float(max(0.3, min(cap_km, k)))  # Minimum 300m for urban
                 if km not in attempts:
                     attempts.append(km)
             return attempts
 
-        travel_attempts_km = _travel_attempts_km(prefs)
+        travel_attempts_km = _travel_attempts_km(prefs, location)
         base_travel_km = (
             travel_attempts_km[0] if travel_attempts_km else MAX_TRAVEL_KM_DEFAULT
         )
