@@ -11,6 +11,7 @@ import { ShareDialog } from '@/components/ShareDialog';
 import { SaveDialog } from '@/components/SaveDialog';
 import { features } from '@/services/features';
 import { upsertHistoryEntry, updateHistoryFeedback } from '@/services/history';
+import { FoodVegas } from '@/components/FoodVegas';
 
 interface StreamingChatProps {
   preferences: UserPreferences;
@@ -380,6 +381,9 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
             <RefreshCw className="w-8 h-8 animate-spin mb-4" />
             <p className="text-sm">{SEARCHING_MESSAGES[cuteIndex] || 'Finding you options...'}</p>
             <p className="text-xs mt-2 opacity-80">{statusMessage || 'Cooking...'} </p>
+            <div className="mt-5 w-full">
+              <FoodVegas density={10} />
+            </div>
           </div>
         )}
 
