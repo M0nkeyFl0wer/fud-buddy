@@ -35,11 +35,26 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   const [statusMessage, setStatusMessage] = useState('');
   const [resultIntro, setResultIntro] = useState('');
 
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [feedbackWent, setFeedbackWent] = useState<boolean | null>(null);
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [isSendingFeedback, setIsSendingFeedback] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
   const generateRecommendations = useCallback(() => {
     setIsStreaming(true);
     setError(null);
     setRecommendations([]);
     setCurrentIndex(0);
+
+    setSessionId(null);
+    setFeedbackWent(null);
+    setFeedbackRating(null);
+    setFeedbackComment('');
+    setFeedbackSent(false);
+    setFeedbackError(null);
     
     // Random searching message
     setStatusMessage(SEARCHING_MESSAGES[Math.floor(Math.random() * SEARCHING_MESSAGES.length)]);
@@ -90,12 +105,16 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
         }
 
         if (event.type === 'error') {
-          setError(event.message || 'Backend error');
+          const msg = typeof event.message === 'string' ? event.message : 'Backend error';
+          setError(msg);
           return;
         }
 
         if (event.type === 'result' && Array.isArray(event.recommendations)) {
           setRecommendations(event.recommendations);
+          if (typeof event.sessionId === 'string') {
+            setSessionId(event.sessionId);
+          }
           return;
         }
 
@@ -110,6 +129,33 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
       }
     );
   }, [preferences]);
+
+  const submitFeedback = useCallback(async () => {
+    if (!sessionId || isSendingFeedback || feedbackSent) return;
+
+    setIsSendingFeedback(true);
+    setFeedbackError(null);
+    try {
+      const resp = await apiClient.post<Record<string, unknown>>('/api/feedback', {
+        session_id: sessionId,
+        went: feedbackWent === null ? undefined : feedbackWent,
+        rating: feedbackRating === null ? undefined : feedbackRating,
+        comment: feedbackComment.trim() || undefined,
+        consent_contact: false,
+        consent_public: false,
+      });
+
+      if (resp?.status !== 'ok') {
+        const msg = typeof resp?.message === 'string' ? resp.message : 'Feedback unavailable';
+        throw new Error(msg);
+      }
+      setFeedbackSent(true);
+    } catch (e) {
+      setFeedbackError(e instanceof Error ? e.message : 'Failed to send feedback');
+    } finally {
+      setIsSendingFeedback(false);
+    }
+  }, [feedbackComment, feedbackRating, feedbackSent, feedbackWent, isSendingFeedback, sessionId]);
 
   useEffect(() => {
     generateRecommendations();
@@ -259,15 +305,94 @@ ${rec.story}`;
       </div>
 
       {recommendations.length > 0 && !isStreaming && (
-        <div className="p-4 border-t flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
-            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            {copied ? 'Copied!' : 'Copy'}
-          </Button>
-          <Button variant="outline" size="sm" onClick={generateRecommendations} className="gap-2">
-            <RefreshCw className="w-4 h-4" />
-            New search
-          </Button>
+        <div className="border-t">
+          {sessionId && (
+            <div className="p-4">
+              <Card className="p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold">How'd it go?</div>
+                    <div className="text-xs text-muted-foreground">
+                      Quick feedback helps tune the vibe and catch bad recs.
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground font-mono">{sessionId.slice(0, 8)}</div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant={feedbackWent === true ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFeedbackWent(true)}
+                    disabled={feedbackSent}
+                  >
+                    I went
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={feedbackWent === false ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFeedbackWent(false)}
+                    disabled={feedbackSent}
+                  >
+                    Didn't go
+                  </Button>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs text-muted-foreground mb-2">Rating</div>
+                  <div className="flex flex-wrap gap-2">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Button
+                        key={n}
+                        type="button"
+                        variant={feedbackRating === n ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setFeedbackRating(n)}
+                        disabled={feedbackSent}
+                      >
+                        {n}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs text-muted-foreground mb-2">Notes (optional)</div>
+                  <textarea
+                    value={feedbackComment}
+                    onChange={(e) => setFeedbackComment(e.target.value)}
+                    placeholder="What landed? What was off?"
+                    className="w-full min-h-[80px] rounded-md border bg-background p-3 text-sm"
+                    disabled={feedbackSent}
+                  />
+                </div>
+
+                {feedbackError && (
+                  <div className="mt-2 text-sm text-destructive">{feedbackError}</div>
+                )}
+
+                <div className="mt-3 flex items-center gap-2">
+                  <Button type="button" onClick={submitFeedback} disabled={feedbackSent || isSendingFeedback}>
+                    {feedbackSent ? 'Thanks!' : isSendingFeedback ? 'Sending...' : 'Send feedback'}
+                  </Button>
+                  {feedbackSent && <div className="text-xs text-muted-foreground">Saved.</div>}
+                </div>
+              </Card>
+            </div>
+          )}
+
+          <div className="p-4 flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? 'Copied!' : 'Copy'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={generateRecommendations} className="gap-2">
+              <RefreshCw className="w-4 h-4" />
+              New search
+            </Button>
+          </div>
         </div>
       )}
     </div>
