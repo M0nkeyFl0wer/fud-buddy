@@ -599,28 +599,11 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
 
             {current && (
               <Card className="p-6 space-y-4">
-                {llmInfo ? (
-                  <div className="text-[11px] text-muted-foreground text-center">
-                    Using {llmInfo.provider} · <span className="font-mono">{llmInfo.model}</span>
-                  </div>
-                ) : null}
                 {isStreaming && (
                   <div className="text-xs text-muted-foreground text-center">
                     Still cooking the next option…
                   </div>
                 )}
-                {current.imageUrl ? (
-                  <div className="-mx-6 -mt-6 pt-4">
-                    <div className="mx-auto w-full max-w-[420px] px-6">
-                      <img
-                        src={current.imageUrl}
-                        alt=""
-                        className="aspect-square w-full object-cover rounded-2xl border"
-                        loading="lazy"
-                      />
-                    </div>
-                  </div>
-                ) : null}
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground italic mb-3">
                     "{resultIntro}"
@@ -640,38 +623,9 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                       Near {preferences.location}
                     </p>
                   )}
-
-                  {Array.isArray(current.signals) && current.signals.length > 0 ? (
-                    <div className="mt-3 mx-auto max-w-[520px] rounded-xl border bg-muted/20 p-3 text-sm">
-                      <div className="flex flex-wrap gap-2 justify-center">
-                        {current.signals.slice(0, 4).map((s) => (
-                          <span
-                            key={s}
-                            className="px-2.5 py-1 rounded-full bg-background border text-xs"
-                          >
-                            {s}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {current.maps?.google || current.maps?.apple ? (
-                    <div className="mt-3 flex flex-wrap justify-center gap-2">
-                      {current.maps.google ? (
-                        <a href={current.maps.google} target="_blank" rel="noreferrer">
-                          <Button type="button" variant="outline" size="sm">Google Maps</Button>
-                        </a>
-                      ) : null}
-                      {current.maps.apple ? (
-                        <a href={current.maps.apple} target="_blank" rel="noreferrer">
-                          <Button type="button" variant="outline" size="sm">Apple Maps</Button>
-                        </a>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
 
+                {/* Order This - Priority Section */}
                 <div className="space-y-3">
                   {(current.order?.main || current.order?.side || current.order?.drink) ? (
                     <div className="rounded-2xl border-2 border-fud-teal/40 bg-background p-4">
