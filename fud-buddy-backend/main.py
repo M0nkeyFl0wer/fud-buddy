@@ -852,6 +852,30 @@ def _maps_links(name: str, address: str) -> dict:
     }
 
 
+def _generate_outfit(vibe: str, place: str, main: str) -> str:
+    """Generate a fun, fake outfit line.
+
+    Keep it short, playful, and relevant to food/venue.
+    """
+
+    v = (vibe or "").strip().lower()
+    p = (place or "").strip()
+    dish = (main or "").strip()
+
+    if not dish:
+        dish = "whatever you end up devouring"
+
+    if any(k in v for k in ("date", "romance", "fancy", "dress")):
+        return f"Date-night armor: a clean fit, one little statement piece, and shoes you can actually walk in after {dish}."
+    if any(k in v for k in ("cozy", "chill", "comfort")):
+        return f"Cozy-core: soft layers and sneakers you trust. You’re here for {dish}, not foot pain."
+    if any(k in v for k in ("street", "loud", "party", "club")):
+        return f"Street-ready: jacket with pockets, sneakers with grip, and a fit that can survive a joyful encounter with {dish}."
+    if any(k in v for k in ("rain", "wet", "storm")):
+        return f"Weather-proof drip: waterproof layer + grippy shoes. You’re not letting rain stop you from {dish}."
+    return f"Wear something comfy-cute. {p} is the vibe; {dish} is the mission."
+
+
 async def _og_image_from_url(url: str) -> str:
     if not url:
         return ""
@@ -1147,7 +1171,8 @@ CRITICAL output requirements:
 - Each recommendation MUST be a JSON object.
 - Each object MUST have ONLY these top-level keys: restaurant, whatToWear, order, backupOrder, story.
 - restaurant MUST have keys: name, address, priceRange, rating.
-- whatToWear MUST be a short string.
+- whatToWear MUST be a short, vivid outfit description (1-2 sentences). Be specific and fun.
+- whatToWear should reference the vibe/venue and the food (e.g. "sneakers you can trust" for spicy ramen, etc.).
 - order MUST have keys: main, side, drink.
 - backupOrder MUST have keys: main, side, drink.
 - story MUST be a short string (2-3 sentences).
@@ -1159,11 +1184,18 @@ Rules:
 
         try:
 
-            def _option_prompt(label: str, guidance: str) -> str:
+            def _option_prompt(
+                label: str, guidance: str, *, exclude_name: str = ""
+            ) -> str:
                 return (
                     context
                     + "\n\n"
                     + f"Now produce {label}. {guidance}\n"
+                    + (
+                        f"MUST be a different restaurant than: {exclude_name}.\n"
+                        if exclude_name
+                        else ""
+                    )
                     + "Return ONLY a single JSON object. No surrounding array. No markdown."
                 )
 
@@ -1171,10 +1203,8 @@ Rules:
                 "Option A",
                 "Pick the cheaper/casual choice.",
             )
-            prompt_b = _option_prompt(
-                "Option B",
-                "Pick the pricier/special choice.",
-            )
+            prompt_b = ""
+            name_a = ""
 
             recs: list[dict] = []
 
@@ -1214,6 +1244,19 @@ Rules:
                 rec_a["maps"] = _maps_links(
                     str(rest_a.get("name") or ""), str(rest_a.get("address") or "")
                 )
+
+            # Ensure whatToWear isn't bland; replace with a fun generated line.
+            try:
+                o = rec_a.get("order")
+                main = str(o.get("main") or "") if isinstance(o, dict) else ""
+                place = (
+                    str(rest_a.get("name") or "") if isinstance(rest_a, dict) else ""
+                )
+                wt = str(rec_a.get("whatToWear") or "")
+                if len(wt.strip()) < 18 or "casual" in wt.lower():
+                    rec_a["whatToWear"] = _generate_outfit(vibe, place, main)
+            except Exception:
+                pass
             recs.append(rec_a)
             yield _sse({"type": "option", "index": 0, "recommendation": rec_a})
 
@@ -1253,6 +1296,51 @@ Rules:
                 rec_b["maps"] = _maps_links(
                     str(rest_b.get("name") or ""), str(rest_b.get("address") or "")
                 )
+
+            try:
+                o = rec_b.get("order")
+                main = str(o.get("main") or "") if isinstance(o, dict) else ""
+                place = (
+                    str(rest_b.get("name") or "") if isinstance(rest_b, dict) else ""
+                )
+                wt = str(rec_b.get("whatToWear") or "")
+                if len(wt.strip()) < 18 or "casual" in wt.lower():
+                    rec_b["whatToWear"] = _generate_outfit(vibe, place, main)
+            except Exception:
+                pass
+
+            # Ensure distinct restaurants; retry once if duplicated.
+            if isinstance(rest_b, dict) and name_a:
+                name_b = str(rest_b.get("name") or "").strip()
+                if name_b and name_b.lower() == name_a.lower():
+                    yield _sse(
+                        {
+                            "type": "status",
+                            "content": "Option B looked too similar. Retrying...",
+                        }
+                    )
+                    prompt_b2 = _option_prompt(
+                        "Option B",
+                        "Pick a pricier/special choice that is NOT the same restaurant as Option A.",
+                        exclude_name=name_a,
+                    )
+                    text_b2 = await _llm_generate(
+                        prompt_b2,
+                        openrouter_key=openrouter_key,
+                        openrouter_model=openrouter_model,
+                    )
+                    obj_b2 = _extract_json_value(text_b2)
+                    norm_b2 = _normalize_recommendations(
+                        [obj_b2] if isinstance(obj_b2, dict) else []
+                    )
+                    if norm_b2:
+                        rec_b = norm_b2[0]
+                        rest_b = rec_b.get("restaurant") or {}
+                        if isinstance(rest_b, dict):
+                            rec_b["maps"] = _maps_links(
+                                str(rest_b.get("name") or ""),
+                                str(rest_b.get("address") or ""),
+                            )
             recs.append(rec_b)
             yield _sse({"type": "option", "index": 1, "recommendation": rec_b})
 
