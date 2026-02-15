@@ -2,7 +2,7 @@
 // This file would contain integration with Airtable in a real implementation
 
 // Mock function to send analytics to Airtable
-export const logToAirtable = async (tableName: string, data: any) => {
+export const logToAirtable = async (tableName: string, data: unknown): Promise<{ success: true }> => {
   // In a real implementation, this would make API calls to Airtable
   console.log(`[Airtable] Logging to ${tableName}:`, data);
   
@@ -16,7 +16,7 @@ export const logToAirtable = async (tableName: string, data: any) => {
 };
 
 // Mock function to query Airtable
-export const queryAirtable = async (tableName: string, query: any) => {
+export const queryAirtable = async (tableName: string, query: unknown): Promise<unknown> => {
   console.log(`[Airtable] Querying ${tableName}:`, query);
   
   // Simulate API delay

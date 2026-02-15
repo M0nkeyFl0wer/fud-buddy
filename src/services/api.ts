@@ -1,4 +1,12 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const DEFAULT_API_BASE_URL = (() => {
+  // If no env is set, assume API is on same host:8000
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    return `http://${window.location.hostname}:8000`;
+  }
+  return 'http://localhost:8000';
+})();
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 class ApiClient {
@@ -6,8 +14,13 @@ class ApiClient {
   private apiKey: string;
 
   constructor() {
-    this.baseUrl = API_BASE_URL;
-    this.apiKey = API_KEY;
+    const storedBaseUrl =
+      typeof window !== 'undefined' ? window.localStorage.getItem('fud_api_base_url') : null;
+    const storedApiKey =
+      typeof window !== 'undefined' ? window.localStorage.getItem('fud_api_key') : null;
+
+    this.baseUrl = storedBaseUrl || API_BASE_URL;
+    this.apiKey = storedApiKey || API_KEY;
   }
 
   private getHeaders(): HeadersInit {
@@ -45,7 +58,8 @@ class ApiClient {
 
   async streamChat(
     messages: Message[],
-    onChunk: (chunk: string) => void,
+    preferences: UserPreferences,
+    onEvent: (event: StreamEvent) => void,
     onComplete: () => void,
     onError: (error: Error) => void
   ): Promise<void> {
@@ -53,7 +67,7 @@ class ApiClient {
       const response = await fetch(`${this.baseUrl}/api/chat/stream`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, preferences }),
       });
 
       if (!response.ok) {
@@ -79,17 +93,25 @@ class ApiClient {
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
-            if (data === '[DONE]') {
-              onComplete();
-              return;
-            }
+
             try {
-              const parsed = JSON.parse(data);
-              if (parsed.content) {
-                onChunk(parsed.content);
+              const parsed: unknown = JSON.parse(data);
+              if (typeof parsed === 'object' && parsed !== null) {
+                onEvent(parsed as StreamEvent);
+              } else {
+                onEvent({ type: 'raw', content: parsed });
+              }
+              if (
+                typeof parsed === 'object' &&
+                parsed !== null &&
+                'type' in parsed &&
+                (parsed as { type?: unknown }).type === 'done'
+              ) {
+                onComplete();
+                return;
               }
             } catch {
-              onChunk(data);
+              onEvent({ type: 'raw', content: data });
             }
           }
         }
@@ -102,10 +124,16 @@ class ApiClient {
 
   setBaseUrl(url: string): void {
     this.baseUrl = url;
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('fud_api_base_url', url);
+    }
   }
 
   setApiKey(key: string): void {
     this.apiKey = key;
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('fud_api_key', key);
+    }
   }
 }
 
@@ -126,6 +154,10 @@ export interface UserPreferences {
   priceRange?: string;
   vibe?: string[];
 }
+
+export type StreamEvent = Record<string, unknown> & {
+  type?: string;
+};
 
 export interface Recommendation {
   restaurant: {

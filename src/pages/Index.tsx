@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import RobotLogo from '@/components/RobotLogo';
 import { PreferenceSelector, UserPreferences } from '@/components/preferences';
 import { StreamingChat } from '@/components/chat';
 import { OSINTReveal } from '@/components/OSINTReveal';
@@ -25,24 +24,10 @@ const Index = () => {
   return (
     <div className="min-h-screen flex flex-col pb-16">
       {view === 'home' && (
-        <div className="max-w-md mx-auto px-4 py-8">
-          <div className="text-center mb-8">
-            <RobotLogo size={280} />
-            <h1 className="text-3xl font-bold mt-4">FUD Buddy</h1>
-            <p className="text-muted-foreground mt-2">
-              Food recommendations with zero judgment.
-            </p>
-          </div>
-          
-          <PreferenceSelector 
-            onSubmit={handlePreferencesSubmit}
-            isLoading={isLoading}
-          />
-          
-          <div className="mt-8">
-            <ConfigLink />
-          </div>
-        </div>
+        <PreferenceSelector 
+          onSubmit={handlePreferencesSubmit}
+          isLoading={isLoading}
+        />
       )}
 
       {view === 'search' && preferences && (

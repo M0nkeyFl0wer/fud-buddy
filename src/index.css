@@ -67,6 +67,38 @@
   }
 }
 
+@layer utilities {
+  @keyframes fud-fade-up {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 10px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
+  @keyframes fud-fade-down {
+    from {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      opacity: 0;
+      transform: translate3d(0, -8px, 0);
+    }
+  }
+
+  .fud-step-in {
+    animation: fud-fade-up 220ms ease-out both;
+  }
+
+  .fud-step-out {
+    animation: fud-fade-down 180ms ease-in both;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;

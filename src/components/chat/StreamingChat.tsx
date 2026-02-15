@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, RefreshCw, Sparkles, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiClient, Message, UserPreferences } from '@/services/api';
 import { SEARCHING_MESSAGES, RESULT_INTROS, PRICEY_INTROS, CHEAP_INTROS } from '@/services/messages';
+import LogoMark from '@/components/LogoMark';
 
 interface StreamingChatProps {
   preferences: UserPreferences;
@@ -77,25 +78,31 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
       { role: 'user', content: 'Find me somewhere to eat!' },
     ];
 
-    let fullContent = '';
-
     apiClient.streamChat(
       messages,
-      (chunk) => {
-        fullContent += chunk;
+      preferences,
+      (event) => {
+        if (!event || typeof event !== 'object') return;
+
+        if (event.type === 'status' && typeof event.content === 'string') {
+          setStatusMessage(event.content);
+          return;
+        }
+
+        if (event.type === 'error') {
+          setError(event.message || 'Backend error');
+          return;
+        }
+
+        if (event.type === 'result' && Array.isArray(event.recommendations)) {
+          setRecommendations(event.recommendations);
+          return;
+        }
+
+        // Optional: we can show streaming JSON output later; for now ignore delta.
       },
       () => {
         setIsStreaming(false);
-        try {
-          // Extract JSON from response
-          const jsonMatch = fullContent.match(/\[[\s\S]*\]/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            setRecommendations(parsed);
-          }
-        } catch (e) {
-          setError('Failed to parse recommendations');
-        }
       },
       (err) => {
         setIsStreaming(false);
@@ -106,7 +113,7 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
 
   useEffect(() => {
     generateRecommendations();
-  }, []);
+  }, [generateRecommendations]);
 
   const handleCopy = () => {
     const rec = recommendations[currentIndex];
@@ -134,11 +141,16 @@ ${rec.story}`;
           <Button variant="ghost" size="icon" onClick={onBack}>
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <div>
-            <h2 className="font-semibold">FUD Buddy</h2>
-            <p className="text-xs text-muted-foreground">
-              {preferences.location} · {preferences.vibe?.[0] || preferences.cuisine?.[0] || 'any'}
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="shrink-0">
+              <LogoMark size={40} />
+            </div>
+            <div>
+              <h2 className="font-semibold">FUD Buddy</h2>
+              <p className="text-xs text-muted-foreground">
+                {preferences.location} · {preferences.vibe?.[0] || preferences.cuisine?.[0] || 'any'}
+              </p>
+            </div>
           </div>
         </div>
         <div className="flex gap-2">
@@ -148,8 +160,12 @@ ${rec.story}`;
               Generate
             </Button>
           )}
-          <Button variant="outline" size="icon" onClick={generateRecommendations} disabled={isStreaming}>
-            <RefreshCw className={`w-4 h-4 ${isStreaming ? 'animate-spin' : ''}`} />
+          <Button variant="outline" size="icon" onClick={generateRecommendations} disabled={isStreaming} title="Refresh">
+            {isStreaming ? (
+              <LogoMark size={18} className="animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
           </Button>
         </div>
       </div>
