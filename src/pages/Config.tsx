@@ -22,6 +22,9 @@ const Config: React.FC = () => {
   const [googleAnalyticsId, setGoogleAnalyticsId] = useState<string>('');
   const [facebookPixelId, setFacebookPixelId] = useState<string>('');
 
+  // Travel preferences (stored locally)
+  const [maxTravelMin, setMaxTravelMin] = useState<number>(20);
+
   // Save API configuration
   const handleSaveAPIConfig = () => {
     try {
@@ -121,6 +124,12 @@ const Config: React.FC = () => {
     
     if (savedGaId) setGoogleAnalyticsId(savedGaId);
     if (savedFbId) setFacebookPixelId(savedFbId);
+
+    const savedMaxTravelMin = localStorage.getItem('fud_max_travel_min');
+    if (savedMaxTravelMin) {
+      const n = Number(savedMaxTravelMin);
+      if (Number.isFinite(n)) setMaxTravelMin(Math.min(120, Math.max(5, n)));
+    }
     
     // Track page view
     analyticsService.trackPageView('/config', 'FUD Buddy - Configuration');
@@ -148,10 +157,11 @@ const Config: React.FC = () => {
       <Tabs defaultValue="ai">
         <TabsList className="mb-4">
           <TabsTrigger value="ai">AI Integration</TabsTrigger>
+          <TabsTrigger value="experience">Experience</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
         
-      <TabsContent value="ai">
+        <TabsContent value="ai">
           <Card>
             <CardHeader>
               <CardTitle>AI Configuration</CardTitle>
@@ -214,6 +224,54 @@ const Config: React.FC = () => {
             </CardContent>
             <CardFooter>
               <Button onClick={handleSaveAPIConfig}>Save API Settings</Button>
+            </CardFooter>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="experience">
+          <Card>
+            <CardHeader>
+              <CardTitle>Experience</CardTitle>
+              <CardDescription>
+                Keep results close to you by default. The app will gently widen if it has to.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="maxTravelMin">Max drive time (minutes)</Label>
+                <div className="flex gap-2 items-center">
+                  <Input
+                    id="maxTravelMin"
+                    type="number"
+                    inputMode="numeric"
+                    min={5}
+                    max={120}
+                    step={5}
+                    value={maxTravelMin}
+                    onChange={(e) => setMaxTravelMin(Number(e.target.value))}
+                  />
+                  <span className="text-sm text-muted-foreground">min</span>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Recommended: 15–25 for rural/cottage country.
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button
+                onClick={() => {
+                  const cleaned = Number.isFinite(maxTravelMin)
+                    ? Math.min(120, Math.max(5, Math.round(maxTravelMin / 5) * 5))
+                    : 20;
+                  localStorage.setItem('fud_max_travel_min', String(cleaned));
+                  toast({
+                    title: 'Saved',
+                    description: `Max drive time set to ${cleaned} minutes.`,
+                  });
+                }}
+              >
+                Save Experience Settings
+              </Button>
             </CardFooter>
           </Card>
         </TabsContent>
