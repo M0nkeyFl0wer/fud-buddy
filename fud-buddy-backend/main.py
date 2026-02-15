@@ -1320,103 +1320,54 @@ def _extract_place_chatter(name: str, results: list[dict]) -> list[dict]:
 async def _search_restaurant_menu(
     restaurant_name: str, location: str, client: httpx.AsyncClient
 ) -> list[str]:
-    """Search for actual menu items for a specific restaurant.
-
-    Returns a list of dish names mentioned in search results.
-    """
+    """Find real menu items from restaurant's website and reviews."""
     if not restaurant_name or not location:
         return []
 
-    # Clean up restaurant name for search
-    clean_name = restaurant_name.replace("&", "and").replace("'", "")
+    dishes = []
+    seen = set()
 
-    # Try multiple menu search queries
-    queries = [
-        f"{clean_name} {location} menu",
-        f"{clean_name} restaurant dishes",
-        f"{clean_name} what to order",
-        f"{clean_name} popular dishes",
-    ]
+    try:
+        # Search for blog reviews about this specific restaurant
+        query = f'"{restaurant_name}" {location} review what to order'
+        results = await search_web(query, client=client)
 
-    all_dishes: list[str] = []
-    seen: set[str] = set()
-
-    for query in queries[:2]:  # Limit to 2 queries to save time
-        try:
-            results = await search_web(query, client=client)
-            if not isinstance(results, list):
-                continue
-
-            for r in results[:5]:  # Look at top 5 results
+        if isinstance(results, list):
+            for r in results[:5]:
                 if not isinstance(r, dict):
                     continue
 
-                content = _clean_snippet(str(r.get("content") or ""))
-                title = _clean_snippet(str(r.get("title") or ""))
-                combined = (title + " " + content).lower()
+                content = str(r.get("content") or "")
 
-                # Look for dish patterns - quoted items, items before "$", numbered lists
-                # Pattern 1: "Dish Name" - $XX
+                # Look for specific patterns in reviews
                 import re
 
-                price_dishes = re.findall(r'"([^"]{3,30})"[^$]*\$\d+', combined)
-                for dish in price_dishes:
-                    d = dish.strip().title()
-                    if d and d not in seen and len(d) > 3:
+                # Pattern: "the [dish name] is incredible"
+                matches1 = re.findall(
+                    r"(?:the|try|order|get)\s+([A-Z][A-Za-z\s&]+(?:pasta|pizza|steak|burger|salad|chicken|fish|risotto|tacos|sushi|ramen))",
+                    content,
+                )
+                for dish in matches1:
+                    d = dish.strip()
+                    if d and d not in seen and 5 < len(d) < 35:
                         seen.add(d)
-                        all_dishes.append(d)
+                        dishes.append(d)
 
-                # Pattern 2: Look for common dish keywords
-                dish_keywords = [
-                    "pasta",
-                    "pizza",
-                    "burger",
-                    "steak",
-                    "salmon",
-                    "chicken",
-                    "risotto",
-                    "tacos",
-                    "burrito",
-                    "ramen",
-                    "sushi",
-                    "curry",
-                    "sandwich",
-                    "salad",
-                    "lobster",
-                    "shrimp",
-                    "brisket",
-                    "ribs",
-                    "wings",
-                    "nachos",
-                    "appetizer",
-                    "entrée",
-                    "dessert",
-                    "specialty",
-                ]
+                # Pattern: quoted dish names
+                matches2 = re.findall(r'"([A-Z][A-Za-z\s&\-]{5,30})"', content)
+                for dish in matches2:
+                    d = dish.strip()
+                    if d and d not in seen and 5 < len(d) < 35:
+                        seen.add(d)
+                        dishes.append(d)
 
-                for keyword in dish_keywords:
-                    # Find sentences containing dish keywords
-                    sentences = re.findall(
-                        r"[^.!?]*\b" + keyword + r"\b[^.!?]*[.!?]",
-                        combined,
-                        re.IGNORECASE,
-                    )
-                    for sentence in sentences:
-                        # Extract dish name - usually capitalized words before the keyword
-                        match = re.search(
-                            r"([A-Z][a-zA-Z\s]{2,25})\s+" + keyword, sentence
-                        )
-                        if match:
-                            dish = (match.group(1) + " " + keyword).strip().title()
-                            if dish not in seen and len(dish) > 5:
-                                seen.add(dish)
-                                all_dishes.append(dish)
+                if len(dishes) >= 4:
+                    break
 
-        except Exception:
-            continue
+    except Exception as e:
+        print(f"Menu search error: {e}")
 
-    # Return top 6 unique dishes
-    return all_dishes[:6]
+    return dishes[:4]
 
 
 def _extract_signals(results: list[dict], restaurant_name: str = "") -> list[str]:
@@ -2186,6 +2137,8 @@ Rules:
             yield _sse({"type": "option", "index": 1, "recommendation": rec_b})
 
             # Search for actual menu items for both restaurants
+            dishes_a: list[str] = []
+            dishes_b: list[str] = []
             try:
                 yield _sse(
                     {"type": "status", "content": "Looking up real menu items..."}
@@ -2236,6 +2189,17 @@ Rules:
                                         else "",
                                         "drink": "",
                                     }
+
+                    # Re-emit updated recommendations with real menu items
+                    if dishes_a and len(dishes_a) >= 2:
+                        yield _sse(
+                            {"type": "option", "index": 0, "recommendation": rec_a}
+                        )
+                    if dishes_b and len(dishes_b) >= 2:
+                        yield _sse(
+                            {"type": "option", "index": 1, "recommendation": rec_b}
+                        )
+
             except Exception:
                 pass  # Fall back to LLM suggestions if menu search fails
 
@@ -2254,90 +2218,78 @@ Rules:
 
             # Best-effort image URLs (parallel)
             async def _img_for(rec: dict, srcs: list[dict]) -> str:
+                """Find actual restaurant photo from their website or reviews."""
                 rest = rec.get("restaurant") or {}
-                name = ""
-                address = ""
-                main = ""
-                if isinstance(rest, dict):
-                    name = str(rest.get("name") or "")
-                    address = str(rest.get("address") or "")
+                name = str(rest.get("name") or "")
+                address = str(rest.get("address") or "")
 
-                o = rec.get("order")
-                if isinstance(o, dict):
-                    main = str(o.get("main") or "")
-                chosen = ""
+                if not name:
+                    return ""
 
-                # First pass: image search biased toward the dish.
                 try:
+                    # First: Try to find restaurant's official website
                     async with httpx.AsyncClient(
-                        timeout=10.0, follow_redirects=True
+                        timeout=8.0, follow_redirects=True
                     ) as c:
-                        q = f"{name} {address}"
-                        if main:
-                            q = f"{q} {main}"
-                        q = f"{q} photo"
-                        imgs = await search_images(q, client=c)
+                        query = f'"{name}" {address} official site -tripadvisor -yelp -google'
+                        hits = await search_web(query, client=c)
 
-                    def _img_score(src_url: str, img_url: str) -> int:
-                        u = (img_url or "").lower()
-                        s = 0
-                        if not u:
-                            return -999
-                        if _is_bad_image_url(u):
-                            return -999
-                        if "media-cdn.tripadvisor.com" in u:
-                            s += 6
-                        if any(k in u for k in ("restaurant", "food", "dish")):
-                            s += 2
-                        if u.endswith((".jpg", ".jpeg", ".png", ".webp")):
-                            s += 1
-
-                        su = (src_url or "").lower()
-                        if "tripadvisor." in su:
-                            s += 2
-                        return s
-
-                    best_img = ""
-                    best_score = -999
-                    for it in imgs[:16]:
-                        src_url = str(it.get("url") or "")
-                        if src_url and _is_bad_source_url(src_url):
-                            continue
-                        img_url = _pick_image_url(it)
-                        score = _img_score(src_url, img_url)
-                        if score > best_score:
-                            best_score = score
-                            best_img = img_url
-                    if best_img and best_score > -50:
-                        return best_img
+                        for h in hits[:3]:
+                            url = str(h.get("url") or "")
+                            if url and not _is_bad_source_url(url):
+                                # Try to get og:image from their website
+                                img = await _og_image_from_url(url)
+                                if img:
+                                    return img
                 except Exception:
                     pass
-                for s in srcs:
-                    title = (s.get("title") or "").lower()
-                    if name and name.lower() in title:
-                        url = s.get("url") or ""
-                        if url and not _is_bad_source_url(str(url)):
-                            chosen = str(url)
-                            break
 
-                if not chosen and name:
-                    # Quick dedicated search for a better page to pull og:image from.
-                    try:
-                        async with httpx.AsyncClient(
-                            timeout=8.0, follow_redirects=True
-                        ) as c:
-                            hits = await search_web(f"{name} {address}", client=c)
-                        for h in hits:
-                            url = h.get("url") or ""
-                            if url and not _is_bad_source_url(str(url)):
-                                chosen = str(url)
-                                break
-                    except Exception:
-                        chosen = ""
+                # Second: Try to get image from review sites about THIS restaurant
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=8.0, follow_redirects=True
+                    ) as c:
+                        query = f'"{name}" restaurant food photo'
+                        imgs = await search_images(query, client=c)
 
-                if not chosen and srcs:
-                    chosen = str(srcs[0].get("url") or "")
-                return await _og_image_from_url(str(chosen))
+                        for it in imgs[:10]:
+                            src_url = str(it.get("url") or "").lower()
+                            img_url = _pick_image_url(it)
+
+                            if not img_url or _is_bad_image_url(img_url):
+                                continue
+
+                            # Check if it's from a relevant source
+                            if any(
+                                good in src_url
+                                for good in ["tripadvisor", "yelp", "blogto", "zomato"]
+                            ):
+                                # Avoid nature/landscape keywords
+                                if not any(
+                                    bad in img_url.lower()
+                                    for bad in [
+                                        "lake",
+                                        "water",
+                                        "beach",
+                                        "forest",
+                                        "mountain",
+                                        "sunset",
+                                        "sky",
+                                    ]
+                                ):
+                                    return img_url
+                except Exception:
+                    pass
+
+                # Last resort: Try source pages
+                for s in srcs[:3]:
+                    url = str(s.get("url") or "")
+                    if url and not _is_bad_source_url(url):
+                        img = await _og_image_from_url(url)
+                        if img:
+                            return img
+
+                return ""
 
             imgs = await asyncio.gather(
                 _img_for(recs[0], img_sources_a),
