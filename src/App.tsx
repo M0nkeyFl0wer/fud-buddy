@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Index from "./pages/Index";
 import Config from "./pages/Config";
+import HistoryPage from "./pages/History";
 import NotFound from "./pages/NotFound";
 import ThemeToggle from "./components/ThemeToggle";
 
@@ -52,6 +53,7 @@ const App = () => {
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/config" element={<Config />} />
+            <Route path="/history" element={<HistoryPage />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
