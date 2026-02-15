@@ -539,17 +539,19 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
               <Bookmark className="w-4 h-4" />
               Save
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate('/history')}
-              className="gap-2"
-              disabled={!features.enableLocalHistory || !profile?.consentSaveHistory}
-              title={profile?.consentSaveHistory ? 'View history' : 'Connect to save history'}
-            >
-              <History className="w-4 h-4" />
-              History
-            </Button>
+            {features.enableLocalHistory ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate('/history')}
+                className="gap-2"
+                disabled={!profile?.consentSaveHistory}
+                title={profile?.consentSaveHistory ? 'View history' : 'Connect to save history'}
+              >
+                <History className="w-4 h-4" />
+                History
+              </Button>
+            ) : null}
             <Button variant="outline" size="sm" onClick={generateRecommendations} className="gap-2">
               <RefreshCw className="w-4 h-4" />
               New search
