@@ -43,11 +43,14 @@ app.add_middleware(
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
 SEARXNG_URL = os.getenv("SEARXNG_URL", "")
-DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 NOMINATIM_URL = os.getenv(
     "NOMINATIM_URL", "https://nominatim.openstreetmap.org"
 ).rstrip("/")
+
+# Google Places API (optional)
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
+GOOGLE_PLACES_CACHE_DAYS = int(os.getenv("GOOGLE_PLACES_CACHE_DAYS", "30"))
 
 
 def _env_float(name: str, default: float) -> float:
@@ -1138,6 +1141,113 @@ async def _og_image_from_url(url: str) -> str:
     return ""
 
 
+# Google Places cache (in-memory for now, should use Redis/DB in production)
+_places_cache: dict[str, dict] = {}
+
+
+async def _get_place_from_google(
+    restaurant_name: str, location: str, client: httpx.AsyncClient
+) -> Optional[dict]:
+    """Get restaurant details from Google Places API with caching.
+
+    Returns dict with: photo_url, menu_items (from reviews), price_level, rating
+    """
+    if not GOOGLE_PLACES_API_KEY:
+        return None
+
+    cache_key = f"{restaurant_name.lower()}:{location.lower()}"
+
+    # Check cache first
+    if cache_key in _places_cache:
+        cached = _places_cache[cache_key]
+        cache_age_days = (time.time() - cached.get("_cached_at", 0)) / 86400
+        if cache_age_days < GOOGLE_PLACES_CACHE_DAYS:
+            return cached
+
+    try:
+        # Step 1: Find place ID
+        search_url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+        search_params = {
+            "input": f"{restaurant_name} {location}",
+            "inputtype": "textquery",
+            "fields": "place_id",
+            "key": GOOGLE_PLACES_API_KEY,
+        }
+
+        resp = await client.get(search_url, params=search_params, timeout=10.0)
+        data = resp.json()
+
+        if data.get("status") != "OK" or not data.get("candidates"):
+            return None
+
+        place_id = data["candidates"][0]["place_id"]
+
+        # Step 2: Get place details including photos and reviews
+        details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+        details_params = {
+            "place_id": place_id,
+            "fields": "photos,reviews,price_level,rating,website,formatted_address",
+            "key": GOOGLE_PLACES_API_KEY,
+        }
+
+        resp = await client.get(details_url, params=details_params, timeout=10.0)
+        data = resp.json()
+
+        if data.get("status") != "OK":
+            return None
+
+        result = data.get("result", {})
+
+        # Extract photo URL
+        photo_url = ""
+        photos = result.get("photos", [])
+        if photos:
+            photo_ref = photos[0].get("photo_reference")
+            if photo_ref:
+                photo_url = f"https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference={photo_ref}&key={GOOGLE_PLACES_API_KEY}"
+
+        # Extract menu items from reviews
+        menu_items: list[str] = []
+        reviews = result.get("reviews", [])
+        for review in reviews[:5]:  # Check top 5 reviews
+            text = review.get("text", "").lower()
+            # Look for mentions of specific dishes
+            patterns = [
+                r"(?:had|ate|ordered|tried)\s+(?:the\s+)?([a-z\s]{5,30}(?:pasta|pizza|burger|steak|salad|chicken|fish|tacos|sushi|ramen))",
+                r"(?:recommend|try)\s+(?:the\s+)?([a-z\s]{5,30}(?:pasta|pizza|burger|steak|salad))",
+            ]
+            for pattern in patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    item = match.strip().title()
+                    if (
+                        item
+                        and len(item) > 5
+                        and len(item) < 35
+                        and item not in menu_items
+                    ):
+                        menu_items.append(item)
+
+        place_data = {
+            "photo_url": photo_url,
+            "menu_items": menu_items[:4],  # Top 4 items from reviews
+            "price_level": result.get("price_level"),
+            "rating": result.get("rating"),
+            "website": result.get("website"),
+            "address": result.get("formatted_address"),
+            "_cached_at": time.time(),
+        }
+
+        # Cache the result
+        _places_cache[cache_key] = place_data
+
+        return place_data
+
+    except Exception as e:
+        print(f"Google Places error for {restaurant_name}: {e}")
+        return None
+
+
 def _is_bad_source_url(url: str) -> bool:
     u = (url or "").lower()
     return any(
@@ -2136,18 +2246,123 @@ Rules:
             recs.append(rec_b)
             yield _sse({"type": "option", "index": 1, "recommendation": rec_b})
 
-            # Search for actual menu items for both restaurants
+            # Search for actual menu items and photos for both restaurants
             dishes_a: list[str] = []
             dishes_b: list[str] = []
+            place_a_data: Optional[dict] = None
+            place_b_data: Optional[dict] = None
+
             try:
                 yield _sse(
-                    {"type": "status", "content": "Looking up real menu items..."}
+                    {
+                        "type": "status",
+                        "content": "Looking up real menu items and photos...",
+                    }
                 )
                 async with httpx.AsyncClient(
                     timeout=10.0, follow_redirects=True
                 ) as menu_client:
-                    # Get menu for Option A
-                    if isinstance(rest_a, dict):
+                    # Try Google Places first (if available)
+                    if GOOGLE_PLACES_API_KEY:
+                        if isinstance(rest_a, dict):
+                            name_a_menu = str(rest_a.get("name") or "")
+                            if name_a_menu:
+                                place_a_data = await _get_place_from_google(
+                                    name_a_menu, location, menu_client
+                                )
+                                if place_a_data:
+                                    # Use Google Places photo
+                                    if place_a_data.get("photo_url"):
+                                        rec_a["imageUrl"] = place_a_data["photo_url"]
+                                    # Use menu items from reviews
+                                    if (
+                                        place_a_data.get("menu_items")
+                                        and len(place_a_data["menu_items"]) >= 2
+                                    ):
+                                        dishes_a = place_a_data["menu_items"]
+                                        rec_a["order"] = {
+                                            "main": dishes_a[0],
+                                            "side": dishes_a[1]
+                                            if len(dishes_a) > 1
+                                            else "",
+                                            "drink": "",
+                                        }
+                                        if len(dishes_a) >= 3:
+                                            rec_a["backupOrder"] = {
+                                                "main": dishes_a[2],
+                                                "side": dishes_a[3]
+                                                if len(dishes_a) > 3
+                                                else "",
+                                                "drink": "",
+                                            }
+                                    # Update price/rating if available
+                                    if place_a_data.get("price_level") and isinstance(
+                                        rest_a, dict
+                                    ):
+                                        price_map = {
+                                            1: "$",
+                                            2: "$$",
+                                            3: "$$$",
+                                            4: "$$$$",
+                                        }
+                                        rest_a["priceRange"] = price_map.get(
+                                            place_a_data["price_level"],
+                                            rest_a.get("priceRange", ""),
+                                        )
+                                    if place_a_data.get("address") and isinstance(
+                                        rest_a, dict
+                                    ):
+                                        rest_a["address"] = place_a_data["address"]
+
+                        if isinstance(rest_b, dict):
+                            name_b_menu = str(rest_b.get("name") or "")
+                            if name_b_menu:
+                                place_b_data = await _get_place_from_google(
+                                    name_b_menu, location, menu_client
+                                )
+                                if place_b_data:
+                                    if place_b_data.get("photo_url"):
+                                        rec_b["imageUrl"] = place_b_data["photo_url"]
+                                    if (
+                                        place_b_data.get("menu_items")
+                                        and len(place_b_data["menu_items"]) >= 2
+                                    ):
+                                        dishes_b = place_b_data["menu_items"]
+                                        rec_b["order"] = {
+                                            "main": dishes_b[0],
+                                            "side": dishes_b[1]
+                                            if len(dishes_b) > 1
+                                            else "",
+                                            "drink": "",
+                                        }
+                                        if len(dishes_b) >= 3:
+                                            rec_b["backupOrder"] = {
+                                                "main": dishes_b[2],
+                                                "side": dishes_b[3]
+                                                if len(dishes_b) > 3
+                                                else "",
+                                                "drink": "",
+                                            }
+                                    if place_b_data.get("price_level") and isinstance(
+                                        rest_b, dict
+                                    ):
+                                        price_map = {
+                                            1: "$",
+                                            2: "$$",
+                                            3: "$$$",
+                                            4: "$$$$",
+                                        }
+                                        rest_b["priceRange"] = price_map.get(
+                                            place_b_data["price_level"],
+                                            rest_b.get("priceRange", ""),
+                                        )
+                                    if place_b_data.get("address") and isinstance(
+                                        rest_b, dict
+                                    ):
+                                        rest_b["address"] = place_b_data["address"]
+
+                    # Fallback to web search if Google Places didn't find menu items
+                    if not dishes_a and isinstance(rest_a, dict):
                         name_a_menu = str(rest_a.get("name") or "")
                         if name_a_menu:
                             dishes_a = await _search_restaurant_menu(
@@ -2168,8 +2383,7 @@ Rules:
                                         "drink": "",
                                     }
 
-                    # Get menu for Option B
-                    if isinstance(rest_b, dict):
+                    if not dishes_b and isinstance(rest_b, dict):
                         name_b_menu = str(rest_b.get("name") or "")
                         if name_b_menu:
                             dishes_b = await _search_restaurant_menu(
@@ -2190,18 +2404,19 @@ Rules:
                                         "drink": "",
                                     }
 
-                    # Re-emit updated recommendations with real menu items
-                    if dishes_a and len(dishes_a) >= 2:
+                    # Re-emit updated recommendations with real data
+                    if dishes_a and len(dishes_a) >= 2 or place_a_data:
                         yield _sse(
                             {"type": "option", "index": 0, "recommendation": rec_a}
                         )
-                    if dishes_b and len(dishes_b) >= 2:
+                    if dishes_b and len(dishes_b) >= 2 or place_b_data:
                         yield _sse(
                             {"type": "option", "index": 1, "recommendation": rec_b}
                         )
 
-            except Exception:
-                pass  # Fall back to LLM suggestions if menu search fails
+            except Exception as e:
+                print(f"Menu/Places search error: {e}")
+                pass  # Fall back to LLM suggestions if search fails
 
             try:
                 place = (
