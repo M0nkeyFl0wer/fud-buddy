@@ -1,154 +1,388 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 import os
 import json
 import httpx
 from sse_starlette.sse import EventSourceResponse
+import uuid
+
+try:
+    from psycopg_pool import AsyncConnectionPool
+except Exception:  # pragma: no cover
+    AsyncConnectionPool = None
 
 app = FastAPI(title="FUD Buddy API")
 
-# CORS
-origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Config - use Ollama
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.3")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
+SEARXNG_URL = os.getenv("SEARXNG_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+db_pool = None
 
 
-# Models
-class ChatMessage(BaseModel):
-    role: str
-    content: str
+@app.on_event("startup")
+async def _startup() -> None:
+    global db_pool
+
+    if not DATABASE_URL:
+        return
+
+    if AsyncConnectionPool is None:
+        return
+
+    db_pool = AsyncConnectionPool(DATABASE_URL, open=False)
+    await db_pool.open()
+
+    async with db_pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                create table if not exists fud_sessions (
+                  id uuid primary key,
+                  created_at timestamptz not null default now(),
+                  preferences jsonb not null,
+                  recommendations jsonb not null,
+                  sources jsonb null
+                );
+
+                create table if not exists fud_feedback (
+                  id uuid primary key,
+                  session_id uuid references fud_sessions(id) on delete cascade,
+                  created_at timestamptz not null default now(),
+                  rating int null,
+                  went boolean null,
+                  comment text null,
+                  contact text null,
+                  consent_contact boolean not null default false,
+                  consent_public boolean not null default false
+                );
+                """
+            )
+        await conn.commit()
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    global db_pool
+    if db_pool is not None:
+        await db_pool.close()
+        db_pool = None
 
 
 class ChatRequest(BaseModel):
-    messages: List[ChatMessage]
+    messages: Optional[List] = []
     preferences: Optional[dict] = None
 
 
-async def search_web(query: str) -> str:
-    """Free web search using DuckDuckGo."""
+class FeedbackRequest(BaseModel):
+    session_id: str
+    rating: Optional[int] = None
+    went: Optional[bool] = None
+    comment: Optional[str] = None
+    contact: Optional[str] = None
+    consent_contact: bool = False
+    consent_public: bool = False
+
+
+async def search_web(query: str) -> list[dict]:
+    """Return a small list of search results.
+
+    Prefers SearxNG (self-hosted) when SEARXNG_URL is set.
+    Falls back to DuckDuckGo HTML only as a last resort.
+    """
+
+    if SEARXNG_URL:
+        try:
+            async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"{SEARXNG_URL.rstrip('/')}/search",
+                    params={
+                        "q": query,
+                        "format": "json",
+                        "language": "en",
+                        "safesearch": "1",
+                    },
+                )
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    results = payload.get("results", [])
+                    out: list[dict] = []
+                    for r in results[:8]:
+                        out.append(
+                            {
+                                "title": r.get("title") or "",
+                                "url": r.get("url") or "",
+                                "content": r.get("content") or "",
+                                "engine": r.get("engine") or "",
+                            }
+                        )
+                    return out
+        except Exception:
+            # If SearxNG is down, fall back.
+            pass
+
+    # Fallback: return an empty list (we don't want brittle scraping in production).
+    return []
+
+
+def _sse(data: Any) -> dict:
+    # EventSourceResponse will serialize dict -> SSE lines. We always send JSON in `data`.
+    return {"data": json.dumps(data)}
+
+
+def _extract_json_array(text: str) -> Optional[list]:
+    # Find the first JSON array in the text.
+    import re
+
+    match = re.search(r"\[[\s\S]*\]", text)
+    if not match:
+        return None
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            response = await client.get(
-                "https://html.duckduckgo.com/html/", params={"q": query}
-            )
-            if response.status_code == 200:
-                return response.text[:8000]
-    except Exception as e:
-        return f"Search error: {str(e)}"
-    return "No results found"
+        parsed = json.loads(match.group(0))
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def _normalize_recommendations(items: list) -> list[dict]:
+    """Best-effort normalization to the app's expected schema.
+
+    Expected per item:
+      {
+        "restaurant": {"name": str, "address": str, "priceRange": str, "rating": number?},
+        "dishes": [{"name": str, "description": str}],
+        "story": str
+      }
+
+    Some models incorrectly nest dishes/story under restaurant. We lift them.
+    """
+
+    out: list[dict] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+
+        restaurant = raw.get("restaurant")
+        dishes = raw.get("dishes")
+        story = raw.get("story")
+
+        if isinstance(restaurant, dict):
+            # Lift nested fields if present.
+            if dishes is None and isinstance(restaurant.get("dishes"), list):
+                dishes = restaurant.get("dishes")
+            if story is None and isinstance(restaurant.get("story"), str):
+                story = restaurant.get("story")
+
+            # Strip any unexpected nesting keys to avoid confusing clients.
+            restaurant = {
+                "name": restaurant.get("name") or "",
+                "address": restaurant.get("address") or "",
+                "priceRange": restaurant.get("priceRange")
+                or restaurant.get("price")
+                or "",
+                "rating": restaurant.get("rating"),
+            }
+        else:
+            restaurant = {"name": "", "address": "", "priceRange": "", "rating": None}
+
+        norm_dishes: list[dict] = []
+        if isinstance(dishes, list):
+            for d in dishes[:4]:
+                if not isinstance(d, dict):
+                    continue
+                name = d.get("name") or ""
+                desc = d.get("description") or d.get("why") or ""
+                if not name:
+                    continue
+                norm_dishes.append({"name": str(name), "description": str(desc)})
+
+        if not isinstance(story, str):
+            story = ""
+
+        out.append({"restaurant": restaurant, "dishes": norm_dishes, "story": story})
+
+    return out
 
 
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
-    """Streaming chat endpoint."""
-
-    preferences = request.preferences or {}
-    location = preferences.get("location", "near them")
-    vibe = ", ".join(preferences.get("vibe", [])) or "popular"
-    cuisine = ", ".join(preferences.get("cuisine", [])) or "any"
-    dietary = ", ".join(preferences.get("dietary", [])) or "none"
-
-    # Build searches
-    searches = [
-        f"best {cuisine} restaurants {location} highly rated reviews 2024",
-        f"site:reddit.com best {cuisine} {location}",
-        f"hidden gem restaurants {location} {cuisine}",
-    ]
-    if vibe:
-        searches.append(f"best {vibe} restaurants {location}")
+    prefs = request.preferences or {}
+    location = prefs.get("location", "near you")
+    vibe = ", ".join(prefs.get("vibe", [])) or "good food"
+    cuisine = ", ".join(prefs.get("cuisine", [])) or "any"
+    dietary = ", ".join(prefs.get("dietary", [])) or "none"
 
     async def event_generator():
-        yield "data: " + json.dumps({"content": "🔍 Searching..."}) + "\n\n"
+        # Status updates
+        yield _sse(
+            {"type": "status", "content": f"Searching for great spots in {location}..."}
+        )
 
-        # Do searches
-        search_results = ""
-        for s in searches:
-            search_results += f"\n--- {s} ---\n"
-            search_results += await search_web(s) + "\n"
+        # Build search queries (keep these tight; we just need candidates and context)
+        searches = [
+            f"best {cuisine} restaurants {location}",
+            f"site:reddit.com {cuisine} {location} best restaurant",
+            f"top rated restaurants {location} {cuisine}",
+        ]
 
-        yield "data: " + json.dumps({"content": "🤔 Thinking..."}) + "\n\n"
+        # Search
+        found: list[dict] = []
+        for query in searches:
+            results = await search_web(query)
+            for r in results:
+                if r.get("url"):
+                    found.append(r)
 
-        context = f"""You are FUD Buddy, a witty food recommendation assistant.
+        # De-dupe by URL
+        dedup: list[dict] = []
+        seen: set[str] = set()
+        for r in found:
+            url = r.get("url") or ""
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            dedup.append(r)
 
-IMPORTANT USER:
-- Location: **{location}**
-- Vibe: **{vibe}**
-- Food: **{cuisine}**
-- Dietary: **{dietary}**
+        if len(dedup) == 0:
+            yield _sse(
+                {
+                    "type": "error",
+                    "message": "Search returned no results (or search is unavailable).",
+                    "hint": "If you're self-hosting, check SEARXNG_URL and that SearxNG is running.",
+                }
+            )
+            yield _sse({"type": "done"})
+            return
 
-Search results:
-{search_results}
+        search_context_lines: list[str] = []
+        for r in dedup[:10]:
+            title = (r.get("title") or "").strip()
+            url = (r.get("url") or "").strip()
+            snippet = (r.get("content") or "").strip().replace("\n", " ")
+            engine = (r.get("engine") or "").strip()
+            if snippet:
+                snippet = snippet[:280]
+            search_context_lines.append(f"- {title} ({engine})\n  {url}\n  {snippet}")
 
-Recommend 2 restaurants:
-1. Cheap/casual ($$ or $)
-2. Nice/special ($$$ or $$$$)
+        search_context = "\n".join(search_context_lines)
 
-For each:
-- Name and address
-- 2-3 dishes to order  
-- SHORT story (2-3 sentences) with: owner/chef info, quirky fact (terrible website, famous dish, etc), why people come back
+        yield _sse({"type": "status", "content": "Found some chatter. Summarizing..."})
 
-Output ONLY valid JSON:
-[
-  {{"restaurant": {{"name": "", "address": "", "priceRange": "$/$$/$$$/$$$$", "rating": 0}}, "dishes": [{{"name": "", "description": ""}}], "story": ""}},
-  {{"restaurant": {{"name": "", "address": "", "priceRange": "$/$$/$$$/$$$$", "rating": 0}}, "dishes": [{{"name": "", "description": ""}}], "story": ""}}
-]
+        # Use LLM to generate recommendations.
+        # IMPORTANT: We do not fabricate private identity info; story focuses on the venue.
+        context = f"""You are FUD Buddy: witty, slightly sassy, extremely helpful.
 
-JSON only."""
+User context:
+- Location: {location}
+- Vibe: {vibe}
+- Cuisine: {cuisine}
+- Dietary: {dietary}
 
-        # Stream from Ollama
+Web search results (snippets + URLs):
+{search_context}
+
+Task:
+Return exactly 2 restaurant recommendations based on what people are talking about.
+1) A cheaper/casual option.
+2) A pricier/special option.
+
+CRITICAL output requirements:
+- Output MUST be a JSON array with exactly 2 objects.
+- Each object MUST have ONLY these top-level keys: restaurant, dishes, story.
+- restaurant MUST have keys: name, address, priceRange, rating.
+- dishes MUST be an array of 2-3 objects with keys: name, description.
+- story MUST be a short string (2-3 sentences).
+- Do NOT nest dishes or story inside restaurant.
+
+Rules:
+- Use real places from the search snippets when possible.
+- Keep story to 2-3 sentences and grounded in the provided links/snippets.
+- Output ONLY valid JSON. No markdown. No commentary."""
+
         try:
+            full_response = ""
             async with httpx.AsyncClient(timeout=180.0) as client:
                 async with client.stream(
                     "POST",
-                    f"{OLLAMA_BASE_URL}/api/chat",
+                    f"{OLLAMA_BASE_URL}/api/generate",
                     json={
                         "model": OLLAMA_MODEL,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You are FUD Buddy. Output valid JSON only.",
-                            },
-                            {"role": "user", "content": context},
-                        ],
+                        "prompt": context,
                         "stream": True,
+                        "options": {
+                            "temperature": 0.6,
+                        },
                     },
                 ) as response:
                     if response.status_code != 200:
-                        yield (
-                            "data: "
-                            + json.dumps({"content": f"Error: {response.status_code}"})
-                            + "\n\n"
+                        yield _sse(
+                            {
+                                "type": "error",
+                                "message": f"LLM error: {response.status_code}",
+                            }
                         )
-                    else:
-                        async for line in response.aiter_lines():
-                            if line:
-                                try:
-                                    parsed = json.loads(line)
-                                    content = parsed.get("message", {}).get(
-                                        "content", ""
-                                    )
-                                    if content:
-                                        yield f"data: {json.dumps({'content': content})}\n\n"
-                                    if parsed.get("done"):
-                                        break
-                                except:
-                                    pass
-        except Exception as e:
-            yield "data: " + json.dumps({"content": f"Error: {str(e)}"}) + "\n\n"
+                        yield _sse({"type": "done"})
+                        return
 
-        yield "data: [DONE]\n\n"
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            payload = json.loads(line)
+                        except Exception:
+                            continue
+
+                        token = payload.get("response")
+                        if token:
+                            full_response += token
+                            # Stream the generated JSON text as a delta.
+                            yield _sse({"type": "delta", "content": token})
+
+                        if payload.get("done"):
+                            break
+
+            recommendations = _extract_json_array(full_response)
+            if recommendations is None:
+                yield _sse(
+                    {
+                        "type": "error",
+                        "message": "Model returned invalid JSON. Try again.",
+                        "rawPreview": full_response[:500],
+                    }
+                )
+                yield _sse({"type": "done"})
+                return
+
+            normalized = _normalize_recommendations(recommendations)
+            if len(normalized) < 2:
+                yield _sse(
+                    {
+                        "type": "error",
+                        "message": "Model returned unusable structure. Try again.",
+                        "rawPreview": full_response[:500],
+                    }
+                )
+                yield _sse({"type": "done"})
+                return
+
+            # Send structured result so the frontend doesn't have to guess.
+            yield _sse({"type": "result", "recommendations": normalized[:2]})
+            yield _sse({"type": "done"})
+
+        except Exception as e:
+            yield _sse({"type": "error", "message": str(e)})
+            yield _sse({"type": "done"})
 
     return EventSourceResponse(event_generator())
 
