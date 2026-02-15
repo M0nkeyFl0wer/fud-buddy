@@ -1262,6 +1262,25 @@ def _extract_place_chatter(name: str, results: list[dict]) -> list[dict]:
             s -= 1
         return s
 
+    def _is_search_listing(text: str) -> bool:
+        """Detect if text is a search result listing rather than a quote."""
+        if not text:
+            return True
+        t = text.lower()
+        # Skip if it looks like a numbered list of restaurants
+        if re.search(r"\d+\s*\.\s*[a-z]", t) and ("reviews" in t or "review" in t):
+            return True
+        # Skip if it contains multiple restaurant names with ratings
+        if t.count(".") > 3 and ("reviews" in t or "stars" in t or "rating" in t):
+            return True
+        # Skip aggregations like "Restaurants in X · 1. Name..."
+        if "·" in text and re.search(r"\d+\s*\.", text):
+            return True
+        # Skip if it's just a description without any actual opinion
+        if len(text) < 40:
+            return True
+        return False
+
     candidates: list[dict] = []
     seen_urls: set[str] = set()
     for r in results[:24]:
@@ -1275,6 +1294,9 @@ def _extract_place_chatter(name: str, results: list[dict]) -> list[dict]:
             continue
         snippet = content or title
         if not snippet:
+            continue
+        # Skip search result listings
+        if _is_search_listing(snippet):
             continue
         seen_urls.add(url)
         candidates.append(
@@ -1295,15 +1317,24 @@ def _extract_place_chatter(name: str, results: list[dict]) -> list[dict]:
     return out
 
 
-def _extract_signals(results: list[dict]) -> list[str]:
-    joined = " ".join(
-        [
-            _clean_snippet(str(r.get("title") or ""))
-            + " "
-            + _clean_snippet(str(r.get("content") or ""))
-            for r in results[:10]
-        ]
-    ).lower()
+def _extract_signals(results: list[dict], restaurant_name: str = "") -> list[str]:
+    """Extract signals only from snippets that mention the specific restaurant."""
+    if not restaurant_name:
+        return []
+
+    name_lower = restaurant_name.lower()
+    # Only look at results that mention this specific restaurant
+    relevant_texts = []
+    for r in results[:10]:
+        title = _clean_snippet(str(r.get("title") or "")).lower()
+        content = _clean_snippet(str(r.get("content") or "")).lower()
+        if name_lower in title or name_lower in content:
+            relevant_texts.append(title + " " + content)
+
+    if not relevant_texts:
+        return []
+
+    joined = " ".join(relevant_texts).lower()
 
     signals: list[str] = []
     if any(k in joined for k in ("beach", "waterfront", "lake", "shore")):
@@ -1867,7 +1898,7 @@ Rules:
                     str(rest_a.get("name") or "") if isinstance(rest_a, dict) else ""
                 )
                 chatter = _extract_place_chatter(place, ground_a)
-                signals = _extract_signals(chatter + ground_a)
+                signals = _extract_signals(chatter + ground_a, place)
                 if chatter:
                     rec_a["peopleSay"] = chatter
                 if signals:
@@ -2009,7 +2040,7 @@ Rules:
                     str(rest_b.get("name") or "") if isinstance(rest_b, dict) else ""
                 )
                 chatter = _extract_place_chatter(place, ground_b)
-                signals = _extract_signals(chatter + ground_b)
+                signals = _extract_signals(chatter + ground_b, place)
                 if chatter:
                     rec_b["peopleSay"] = chatter
                 if signals:
