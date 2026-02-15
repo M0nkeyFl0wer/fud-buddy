@@ -354,12 +354,18 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
     );
   }, [preferences]);
 
-  // Rotate through loading images
+  // Rotate through loading images and messages
   useEffect(() => {
-    if (loaderPhotos.length === 0 || !isStreaming) return;
+    if (!isStreaming) return;
     
     const interval = setInterval(() => {
-      setCurrentLoaderIndex((prev) => (prev + 1) % loaderPhotos.length);
+      // Rotate image
+      if (loaderPhotos.length > 0) {
+        setCurrentLoaderIndex((prev) => (prev + 1) % loaderPhotos.length);
+      }
+      // Rotate message
+      setCuteIndex((prev) => (prev + 1) % SEARCHING_MESSAGES.length);
+      setStatusMessage(SEARCHING_MESSAGES[Math.floor(Math.random() * SEARCHING_MESSAGES.length)]);
     }, 2000); // Switch every 2 seconds
     
     return () => clearInterval(interval);
@@ -698,15 +704,19 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                   <p className="text-muted-foreground italic">{current.story}</p>
                 </div>
 
-                {Array.isArray(current.signals) && current.signals.length > 0 ? (
+{current.maps?.google || current.maps?.apple ? (
                   <div className="border-t pt-4">
-                    <h4 className="font-semibold mb-2">Local favourites:</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {current.signals.slice(0, 6).map((s) => (
-                        <span key={s} className="text-xs rounded-full border px-3 py-1 bg-muted/30">
-                          {s}
-                        </span>
-                      ))}
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {current.maps.google ? (
+                        <a href={current.maps.google} target="_blank" rel="noreferrer">
+                          <Button type="button" variant="outline" size="sm">Google Maps</Button>
+                        </a>
+                      ) : null}
+                      {current.maps.apple ? (
+                        <a href={current.maps.apple} target="_blank" rel="noreferrer">
+                          <Button type="button" variant="outline" size="sm">Apple Maps</Button>
+                        </a>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
