@@ -4,3 +4,7 @@ python-dotenv>=1.0.0
 httpx>=0.26.0
 sse-starlette>=2.0.0
 pydantic>=2.5.0
+
+# Optional persistence (Postgres)
+psycopg[binary]>=3.2.3
+psycopg_pool>=3.2.4
