@@ -14,6 +14,7 @@ from urllib.parse import quote_plus
 import html
 import ipaddress
 from urllib.parse import urlparse
+import time
 
 try:
     from psycopg_pool import AsyncConnectionPool
@@ -90,6 +91,66 @@ def _resolve_openrouter_overrides(request: Request) -> tuple[str, str]:
         model = client_model
 
     return api_key, model
+
+
+# Basic in-memory rate limiting (single-process demo)
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "0") == "1"
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "3"))
+RATE_LIMIT_WINDOW_S = int(os.getenv("RATE_LIMIT_WINDOW_S", "3600"))
+
+RATE_LIMIT_WHITELIST_IPS = {
+    s.strip() for s in os.getenv("RATE_LIMIT_WHITELIST_IPS", "").split(",") if s.strip()
+}
+
+RATE_LIMIT_WHITELIST_CLIENT_IDS = {
+    s.strip()
+    for s in os.getenv("RATE_LIMIT_WHITELIST_CLIENT_IDS", "").split(",")
+    if s.strip()
+}
+
+_rate_limit_hits: dict[str, list[float]] = {}
+
+
+def _get_client_id(request: Request) -> str:
+    cid = request.headers.get("x-fud-client-id") or ""
+    return cid.strip()[:120]
+
+
+def _check_rate_limit(request: Request) -> Optional[dict]:
+    if not RATE_LIMIT_ENABLED:
+        return None
+
+    ip = ""
+    try:
+        ip = request.client.host if request.client else ""
+    except Exception:
+        ip = ""
+
+    client_id = _get_client_id(request)
+
+    if ip and ip in RATE_LIMIT_WHITELIST_IPS:
+        return None
+    if client_id and client_id in RATE_LIMIT_WHITELIST_CLIENT_IDS:
+        return None
+
+    key = client_id or ip or "unknown"
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW_S
+
+    hits = _rate_limit_hits.get(key, [])
+    hits = [t for t in hits if t >= window_start]
+    if len(hits) >= RATE_LIMIT_MAX:
+        retry_after = int(max(1, hits[0] + RATE_LIMIT_WINDOW_S - now))
+        _rate_limit_hits[key] = hits
+        return {
+            "type": "error",
+            "message": "Rate limit: too many requests. Try again later.",
+            "retryAfterSeconds": retry_after,
+        }
+
+    hits.append(now)
+    _rate_limit_hits[key] = hits
+    return None
 
 
 async def _openrouter_stream(prompt: str):
@@ -872,6 +933,29 @@ async def chat_stream(request: Request, payload: ChatRequest):
     dietary = ", ".join(prefs.get("dietary", [])) or "none"
 
     async def event_generator():
+        limited = _check_rate_limit(request)
+        if limited:
+            yield _sse(limited)
+            yield _sse({"type": "done"})
+            return
+
+        # Emit model info so the client can display it.
+        openrouter_key, openrouter_model = _resolve_openrouter_overrides(request)
+        if openrouter_key:
+            yield _sse(
+                {
+                    "type": "meta",
+                    "llm": {
+                        "provider": "openrouter",
+                        "model": openrouter_model or OPENROUTER_MODEL,
+                    },
+                }
+            )
+        else:
+            yield _sse(
+                {"type": "meta", "llm": {"provider": "ollama", "model": OLLAMA_MODEL}}
+            )
+
         # Status updates
         display_location = (
             "your area" if _looks_like_coords(str(location)) else location
@@ -999,8 +1083,6 @@ Rules:
                     + f"Now produce {label}. {guidance}\n"
                     + "Return ONLY a single JSON object. No surrounding array. No markdown."
                 )
-
-            openrouter_key, openrouter_model = _resolve_openrouter_overrides(request)
 
             prompt_a = _option_prompt(
                 "Option A",
