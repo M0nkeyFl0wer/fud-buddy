@@ -39,6 +39,69 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 db_pool = None
 
 
+@app.get("/api/geocode/reverse")
+async def reverse_geocode(lat: float, lon: float):
+    """Reverse geocode lat/lon into a human-friendly place.
+
+    This is intentionally best-effort (no keys required) and returns a short display string.
+    """
+
+    url = "https://nominatim.openstreetmap.org/reverse"
+    params = {
+        "format": "jsonv2",
+        "lat": str(lat),
+        "lon": str(lon),
+    }
+    headers = {
+        "Accept": "application/json",
+        # Nominatim policy prefers identifiable UA; keep it generic and non-personal.
+        "User-Agent": "fud-buddy-dev/1.0",
+        "Accept-Language": "en",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            resp = await client.get(url, params=params, headers=headers)
+            if resp.status_code != 200:
+                return {"ok": False, "display": "", "status": resp.status_code}
+
+            data = resp.json()
+            addr = data.get("address") or {}
+            if not isinstance(addr, dict):
+                addr = {}
+
+            city = (
+                addr.get("city")
+                or addr.get("town")
+                or addr.get("village")
+                or addr.get("hamlet")
+                or addr.get("county")
+                or ""
+            )
+            state = (
+                addr.get("state")
+                or addr.get("region")
+                or addr.get("state_district")
+                or ""
+            )
+
+            if isinstance(city, str) and isinstance(state, str) and city and state:
+                return {"ok": True, "display": f"{city}, {state}"}
+            if isinstance(city, str) and city:
+                return {"ok": True, "display": city}
+
+            display_name = data.get("display_name")
+            if isinstance(display_name, str) and display_name:
+                short = ", ".join(
+                    [p.strip() for p in display_name.split(",")[:3] if p.strip()]
+                )
+                return {"ok": True, "display": short}
+
+            return {"ok": False, "display": ""}
+    except Exception as e:
+        return {"ok": False, "display": "", "error": str(e)}
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     global db_pool
