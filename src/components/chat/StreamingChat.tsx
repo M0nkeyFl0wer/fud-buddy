@@ -26,6 +26,12 @@ interface Recommendation {
   story: string;
 }
 
+type Source = {
+  title: string;
+  url: string;
+  engine?: string;
+};
+
 export function StreamingChat({ preferences, onBack, onGenerateImage }: StreamingChatProps) {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -34,6 +40,9 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   const [copied, setCopied] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [resultIntro, setResultIntro] = useState('');
+
+  const [sources, setSources] = useState<Source[]>([]);
+  const [showSources, setShowSources] = useState(false);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [feedbackWent, setFeedbackWent] = useState<boolean | null>(null);
@@ -50,6 +59,8 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
     setCurrentIndex(0);
 
     setSessionId(null);
+    setSources([]);
+    setShowSources(false);
     setFeedbackWent(null);
     setFeedbackRating(null);
     setFeedbackComment('');
@@ -114,6 +125,18 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
           setRecommendations(event.recommendations);
           if (typeof event.sessionId === 'string') {
             setSessionId(event.sessionId);
+          }
+
+          if (Array.isArray(event.sources)) {
+            const cleaned = event.sources
+              .filter((s): s is Record<string, unknown> => typeof s === 'object' && s !== null)
+              .map((s) => ({
+                title: typeof s.title === 'string' ? s.title : '',
+                url: typeof s.url === 'string' ? s.url : '',
+                engine: typeof s.engine === 'string' ? s.engine : undefined,
+              }))
+              .filter((s) => s.url);
+            setSources(cleaned.slice(0, 8));
           }
           return;
         }
@@ -292,6 +315,38 @@ ${rec.story}`;
                   <h4 className="font-semibold mb-2">The story:</h4>
                   <p className="text-muted-foreground italic">{current.story}</p>
                 </div>
+
+                {sources.length > 0 && (
+                  <div className="border-t pt-4">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowSources((v) => !v)}
+                      className="px-0"
+                    >
+                      {showSources ? 'Hide sources' : 'Show sources'}
+                    </Button>
+
+                    {showSources && (
+                      <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+                        {sources.map((s) => (
+                          <div key={s.url} className="break-words">
+                            <a
+                              href={s.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline underline-offset-2"
+                            >
+                              {s.title || s.url}
+                            </a>
+                            {s.engine ? <span className="ml-2 opacity-70">({s.engine})</span> : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </Card>
             )}
           </div>
