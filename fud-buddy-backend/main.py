@@ -1790,13 +1790,13 @@ CRITICAL output requirements:
 - Each object MUST have ONLY these top-level keys: restaurant, whatToWear, order, backupOrder, story.
 - restaurant MUST have keys: name, address, priceRange, rating.
 - whatToWear MUST be a short, vivid outfit description (1-2 sentences). Be specific and fun.
-- whatToWear should reference the vibe/venue and the food (e.g. "sneakers you can trust" for spicy ramen, etc.).
-- order MUST have keys: main, side, drink.
-- backupOrder MUST have keys: main, side, drink.
-- story MUST be a short string (2-3 sentences).
+- whatToWear should reference the vibe/venue and the food.
+- order and backupOrder: Use ONLY dishes mentioned in the search snippets. If no specific dishes are mentioned, set these to empty strings or describe the general cuisine type (e.g., "Italian pasta dishes"). NEVER fabricate specific menu items like "Classic pub burger" - that's misleading.
+- story MUST be a short string (2-3 sentences) grounded in the snippets.
 
 Rules:
-- Prefer places that clearly appear in the snippets.
+- Extract REAL information from the snippets only.
+- If you don't see a specific dish mentioned, don't make one up.
 - Keep story grounded in the snippets (no invented chefs/owners).
 - No markdown, no commentary, no extra keys."""
 
