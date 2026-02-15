@@ -563,21 +563,19 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
       <ShareDialog
         open={isShareOpen}
         onOpenChange={setIsShareOpen}
-        recommendation={
-          current
-            ? {
-                restaurant: {
-                  name: current.restaurant.name,
-                  address: current.restaurant.address,
-                  priceRange: current.restaurant.priceRange,
-                },
-                whatToWear: current.whatToWear,
-                order: current.order,
-                backupOrder: current.backupOrder,
-                imageUrl: current.imageUrl,
-              }
-            : undefined
-        }
+        recommendations={recommendations.map((r) => ({
+          restaurant: {
+            name: r.restaurant.name,
+            address: r.restaurant.address,
+            priceRange: r.restaurant.priceRange,
+          },
+          whatToWear: r.whatToWear,
+          order: r.order,
+          backupOrder: r.backupOrder,
+          imageUrl: r.imageUrl,
+          maps: r.maps,
+        }))}
+        initialIndex={currentIndex}
         vibe={preferences.vibe?.[0]}
         location={preferences.location}
       />

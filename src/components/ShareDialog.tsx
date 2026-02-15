@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button';
 import { Copy, Download, ExternalLink, Share2 } from 'lucide-react';
 import { downloadShareCardPng, renderShareCardSvg } from '@/utils/shareCard';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type RecommendationLike = {
   restaurant: { name: string; address: string; priceRange?: string };
@@ -10,19 +11,29 @@ type RecommendationLike = {
   order?: { main?: string; side?: string; drink?: string };
   backupOrder?: { main?: string; side?: string; drink?: string };
   imageUrl?: string;
+  maps?: { google?: string; apple?: string };
 };
 
 type ShareDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  recommendation?: RecommendationLike;
+  recommendations?: RecommendationLike[];
+  initialIndex?: number;
   vibe?: string;
   location?: string;
 };
 
-export function ShareDialog({ open, onOpenChange, recommendation, vibe, location }: ShareDialogProps) {
+export function ShareDialog({ open, onOpenChange, recommendations = [], initialIndex = 0, vibe, location }: ShareDialogProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [active, setActive] = useState(String(initialIndex));
+
+  useEffect(() => {
+    if (!open) return;
+    setActive(String(initialIndex));
+  }, [initialIndex, open]);
+
+  const recommendation = recommendations[Number(active) || 0];
 
   const svg = useMemo(() => {
     if (!recommendation) return '';
@@ -51,6 +62,7 @@ export function ShareDialog({ open, onOpenChange, recommendation, vibe, location
       r.order?.main ? `Order: ${r.order.main}` : '',
       r.order?.drink ? `Drink: ${r.order.drink}` : '',
       r.whatToWear ? `Wear: ${r.whatToWear}` : '',
+      r.maps?.google ? r.maps.google : '',
       '#fudbuddy',
     ].filter(Boolean);
     return parts.join('\n');
@@ -106,6 +118,18 @@ export function ShareDialog({ open, onOpenChange, recommendation, vibe, location
           <DialogTitle>Share</DialogTitle>
           <DialogDescription>Download a card, copy the caption, and post wherever.</DialogDescription>
         </DialogHeader>
+
+        {recommendations.length > 1 ? (
+          <Tabs value={active} onValueChange={setActive}>
+            <TabsList className="w-full">
+              {recommendations.slice(0, 2).map((r, idx) => (
+                <TabsTrigger key={idx} value={String(idx)} className="flex-1">
+                  {idx === 0 ? 'Option A' : 'Option B'}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        ) : null}
 
         {previewUrl ? (
           <div className="rounded-lg overflow-hidden border bg-muted/20">

@@ -10,6 +10,7 @@ import Config from "./pages/Config";
 import HistoryPage from "./pages/History";
 import NotFound from "./pages/NotFound";
 import ThemeToggle from "./components/ThemeToggle";
+import { features } from "./services/features";
 
 const queryClient = new QueryClient();
 
@@ -53,7 +54,7 @@ const App = () => {
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/config" element={<Config />} />
-            <Route path="/history" element={<HistoryPage />} />
+            {features.enableLocalHistory ? <Route path="/history" element={<HistoryPage />} /> : null}
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
