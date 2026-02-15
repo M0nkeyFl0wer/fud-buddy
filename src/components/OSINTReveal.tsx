@@ -20,6 +20,8 @@ import {
   User
 } from 'lucide-react';
 import { TrackerDemo } from '@/components/TrackerDemo';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { clearUserProfile, consumeOsintExpandOnce, loadUserProfile } from '@/services/profile';
 
 type NavigatorWithDeviceMemory = Navigator & { deviceMemory?: number };
 
@@ -49,6 +51,9 @@ export function OSINTReveal() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [data, setData] = useState<OSINTData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [profileVersion, setProfileVersion] = useState(0);
+
+  const profile = loadUserProfile();
 
   useEffect(() => {
     const collectFingerprint = async () => {
@@ -163,6 +168,12 @@ export function OSINTReveal() {
     setTimeout(collectFingerprint, 500);
   }, []);
 
+  useEffect(() => {
+    if (consumeOsintExpandOnce()) {
+      setIsExpanded(true);
+    }
+  }, [profileVersion]);
+
   if (isLoading) {
     return (
       <div className="p-4 text-center text-sm text-muted-foreground">
@@ -254,6 +265,53 @@ export function OSINTReveal() {
                     This profile can be used to track you across websites even without cookies.
                   </p>
                 </div>
+
+                {profile?.consentShowInOsint && (profile.displayName || profile.avatarUrl) && (
+                  <div className="border-t pt-2">
+                    <p className="font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                      <User className="w-3 h-3" /> With your permission
+                    </p>
+                    <div className="flex items-center gap-3 bg-muted p-2 rounded">
+                      <Avatar className="h-9 w-9">
+                        {profile.avatarUrl ? <AvatarImage src={profile.avatarUrl} alt="" /> : null}
+                        <AvatarFallback>
+                          {(profile.displayName || 'You')
+                            .split(/\s+/)
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .map((p) => p[0])
+                            .join('')
+                            .toUpperCase() || 'YOU'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-medium truncate">
+                          {profile.displayName || 'You'}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground truncate">
+                          Saved locally{profile.provider && profile.provider !== 'none' ? ` · ${profile.provider}` : ''}
+                        </div>
+                      </div>
+                      <div className="ml-auto">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[10px]"
+                          onClick={() => {
+                            clearUserProfile();
+                            setProfileVersion((v) => v + 1);
+                          }}
+                        >
+                          Forget me
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-muted-foreground mt-2">
+                      This section only appears when you opt in (Share + Save).
+                    </p>
+                  </div>
+                )}
 
                 {/* Why it matters */}
                 <div className="border-t pt-2 text-[10px] text-muted-foreground">

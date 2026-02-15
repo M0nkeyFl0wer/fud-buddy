@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, RefreshCw, Sparkles, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Sparkles, Copy, Check, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
 import { apiClient, Message, UserPreferences } from '@/services/api';
 import { SEARCHING_MESSAGES, RESULT_INTROS, PRICEY_INTROS, CHEAP_INTROS } from '@/services/messages';
 import LogoMark from '@/components/LogoMark';
+import { ShareAccountDialog } from '@/components/ShareAccountDialog';
+import { loadUserProfile } from '@/services/profile';
 
 interface StreamingChatProps {
   preferences: UserPreferences;
@@ -51,6 +53,8 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   const [isSendingFeedback, setIsSendingFeedback] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  const [isShareOpen, setIsShareOpen] = useState(false);
 
   const generateRecommendations = useCallback(() => {
     setIsStreaming(true);
@@ -202,6 +206,9 @@ ${rec.story}`;
   };
 
   const current = recommendations[currentIndex];
+
+  const previewDish = current?.dishes?.[0]?.name;
+  const savedName = loadUserProfile()?.displayName || '';
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -443,6 +450,10 @@ ${rec.story}`;
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copied ? 'Copied!' : 'Copy'}
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setIsShareOpen(true)} className="gap-2">
+              <Share2 className="w-4 h-4" />
+              Share
+            </Button>
             <Button variant="outline" size="sm" onClick={generateRecommendations} className="gap-2">
               <RefreshCw className="w-4 h-4" />
               New search
@@ -450,6 +461,20 @@ ${rec.story}`;
           </div>
         </div>
       )}
+
+      <ShareAccountDialog
+        open={isShareOpen}
+        onOpenChange={setIsShareOpen}
+        defaultName={savedName}
+        preview={
+          current
+            ? {
+                restaurantName: current.restaurant.name,
+                dishName: previewDish,
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }
