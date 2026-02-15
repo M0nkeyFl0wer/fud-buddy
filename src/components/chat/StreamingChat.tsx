@@ -661,7 +661,19 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                         </div>
                       </div>
                     </div>
-                  ) : null}
+                  ) : (
+                    // Fallback when no specific dishes found
+                    <div className="rounded-2xl border-2 border-fud-teal/40 bg-background p-4">
+                      <div className="text-center">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                          Order This
+                        </div>
+                        <div className="text-sm text-muted-foreground mt-2">
+                          Check their menu for chef's recommendations
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {(current.backupOrder?.main || current.backupOrder?.side || current.backupOrder?.drink) ? (
                     <details className="rounded-xl border bg-muted/20 p-3">
