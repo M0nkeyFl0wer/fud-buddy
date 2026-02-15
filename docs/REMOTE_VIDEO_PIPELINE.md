@@ -20,6 +20,7 @@ or a private ops doc.
 - `scripts/process-video-remote.sh` - runs a configurable remote processing command
 - `scripts/pull-artifacts.sh` - downloads results from the remote host
 - `scripts/video-pipeline.sh` - end-to-end wrapper: upload -> process -> download
+- `scripts/transcribe-video-remote.sh` - optional faster-whisper transcription step
 
 ## Example Workflow
 
@@ -52,6 +53,16 @@ Or run the full pipeline in one step:
 
 ```bash
 LOCAL_ARTIFACTS_DIR=./artifacts/demo ./scripts/video-pipeline.sh REMOTE_USER@REMOTE_HOST ./recordings/fud-demo.mp4
+```
+
+To also transcribe audio on the remote host (installs faster-whisper into a venv inside the
+remote output directory):
+
+```bash
+ENABLE_TRANSCRIBE=1 AUTO_INSTALL_TRANSCRIBE=1 \
+  WHISPER_MODEL=small WHISPER_DEVICE=cuda WHISPER_COMPUTE_TYPE=float16 \
+  LOCAL_ARTIFACTS_DIR=./artifacts/demo \
+  ./scripts/video-pipeline.sh REMOTE_USER@REMOTE_HOST ./recordings/fud-demo.mp4
 ```
 
 ## What We Still Need To Decide
