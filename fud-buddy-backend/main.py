@@ -454,6 +454,7 @@ Rules:
                 {
                     "type": "result",
                     "sessionId": str(session_id),
+                    "sources": sources,
                     "recommendations": normalized[:2],
                 }
             )
