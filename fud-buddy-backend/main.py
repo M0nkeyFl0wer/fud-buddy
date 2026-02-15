@@ -169,10 +169,14 @@ async def list_openrouter_models(request: Request):
     return {"ok": True, "models": models}
 
 
-# Basic in-memory rate limiting (single-process demo)
+# Beta rate limiting (3 per day, 3-hour gap after first 3)
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "0") == "1"
-RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "3"))
-RATE_LIMIT_WINDOW_S = int(os.getenv("RATE_LIMIT_WINDOW_S", "3600"))
+RATE_LIMIT_DAILY_MAX = int(os.getenv("RATE_LIMIT_DAILY_MAX", "3"))
+RATE_LIMIT_GAP_HOURS = int(os.getenv("RATE_LIMIT_GAP_HOURS", "3"))
+RATE_LIMIT_SOFT_MAX = int(os.getenv("RATE_LIMIT_SOFT_MAX", "5"))
+RATE_LIMIT_DAILY_WINDOW_S = int(
+    os.getenv("RATE_LIMIT_DAILY_WINDOW_S", "86400")
+)  # 24 hours
 
 RATE_LIMIT_WHITELIST_IPS = {
     s.strip() for s in os.getenv("RATE_LIMIT_WHITELIST_IPS", "").split(",") if s.strip()
@@ -193,6 +197,10 @@ def _get_client_id(request: Request) -> str:
 
 
 def _check_rate_limit(request: Request) -> Optional[dict]:
+    """Beta rate limiting: 3/day, then 3-hour gap, then up to 5 total.
+
+    Returns error dict if limit exceeded, None if allowed.
+    """
     if not RATE_LIMIT_ENABLED:
         return None
 
@@ -211,22 +219,56 @@ def _check_rate_limit(request: Request) -> Optional[dict]:
 
     key = client_id or ip or "unknown"
     now = time.time()
-    window_start = now - RATE_LIMIT_WINDOW_S
 
     hits = _rate_limit_hits.get(key, [])
+
+    # Clean old hits outside 24h window
+    window_start = now - RATE_LIMIT_DAILY_WINDOW_S
     hits = [t for t in hits if t >= window_start]
-    if len(hits) >= RATE_LIMIT_MAX:
-        retry_after = int(max(1, hits[0] + RATE_LIMIT_WINDOW_S - now))
+
+    total_hits = len(hits)
+
+    # Check hard limit (5 total)
+    if total_hits >= RATE_LIMIT_SOFT_MAX:
+        oldest_hit = min(hits)
+        retry_after = int(max(1, oldest_hit + RATE_LIMIT_DAILY_WINDOW_S - now))
         _rate_limit_hits[key] = hits
         return {
-            "type": "error",
-            "message": "Rate limit: too many requests. Try again later.",
+            "type": "rate_limit",
+            "error": "daily_limit",
+            "message": "You've reached the daily limit. This is a beta product and API calls are expensive. Please try again tomorrow!",
             "retryAfterSeconds": retry_after,
+            "hits": total_hits,
         }
+
+    # Check soft limit (3 hits require 3-hour gap)
+    if total_hits >= RATE_LIMIT_DAILY_MAX:
+        # Check if enough time has passed since the 3rd hit
+        hits_sorted = sorted(hits)
+        third_hit_time = hits_sorted[RATE_LIMIT_DAILY_MAX - 1]
+        gap_seconds = RATE_LIMIT_GAP_HOURS * 3600
+        time_since_third = now - third_hit_time
+
+        if time_since_third < gap_seconds:
+            retry_after = int(gap_seconds - time_since_third)
+            _rate_limit_hits[key] = hits
+            return {
+                "type": "rate_limit",
+                "error": "cooldown",
+                "message": f"Thanks for testing! This is a beta product and API calls are expensive. Please wait {RATE_LIMIT_GAP_HOURS} hours before making more requests.",
+                "retryAfterSeconds": retry_after,
+                "hits": total_hits,
+            }
 
     hits.append(now)
     _rate_limit_hits[key] = hits
-    return None
+
+    # Return hit count for UI awareness
+    return {
+        "type": "rate_limit_status",
+        "hits": len(hits),
+        "max": RATE_LIMIT_SOFT_MAX,
+    }
 
 
 async def _openrouter_stream(prompt: str):

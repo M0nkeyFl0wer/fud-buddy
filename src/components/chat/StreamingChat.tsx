@@ -81,6 +81,8 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   const [cuteIndex, setCuteIndex] = useState(0);
   const [llmInfo, setLlmInfo] = useState<{ provider: string; model: string } | null>(null);
   const [loaderPhotos, setLoaderPhotos] = useState<string[]>([]);
+  const [showBetaBanner, setShowBetaBanner] = useState(false);
+  const [rateLimitInfo, setRateLimitInfo] = useState<{ hits: number; max: number } | null>(null);
 
   const [previous, setPrevious] = useState<{
     recommendations: Recommendation[];
@@ -272,6 +274,24 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
         if (event.type === 'error') {
           const msg = typeof event.message === 'string' ? event.message : 'Backend error';
           setError(formatError(msg));
+          return;
+        }
+
+        if (event.type === 'rate_limit') {
+          const msg = typeof event.message === 'string' ? event.message : 'Rate limit reached';
+          const errorType = (event as { error?: string }).error;
+          setError(msg);
+          // Show beta banner for rate limits
+          if (errorType === 'daily_limit' || errorType === 'cooldown') {
+            setShowBetaBanner(true);
+          }
+          return;
+        }
+
+        if (event.type === 'rate_limit_status') {
+          const hits = (event as { hits?: number }).hits || 0;
+          const max = (event as { max?: number }).max || 5;
+          setRateLimitInfo({ hits, max });
           return;
         }
 
@@ -501,8 +521,27 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
+        {showBetaBanner && (
+          <div className="mb-4 p-4 rounded-xl border-2 border-amber-500/50 bg-amber-50 dark:bg-amber-950/30">
+            <div className="flex items-start gap-3">
+              <div className="text-2xl">🍔</div>
+              <div>
+                <h3 className="font-semibold text-amber-800 dark:text-amber-200">Beta Testing Mode</h3>
+                <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                  Thanks for testing FUD Buddy! This is a beta product and API calls are expensive.
+                  {rateLimitInfo && (
+                    <span className="block mt-1">
+                      You've used {rateLimitInfo.hits} of {rateLimitInfo.max} daily requests.
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {error && (
-          <div className="p-4 rounded-lg bg-destructive/10 text-destructive text-sm mb-4">
+          <div className="p-4 rounded-lg bg-destructive/10 text-destructive text-sm mb-4 border border-destructive/20">
             {error}
           </div>
         )}
