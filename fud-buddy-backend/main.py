@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -45,9 +45,51 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 # Optional: OpenRouter (OpenAI-compatible) for faster testing
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash")
 OPENROUTER_MAX_TOKENS = int(os.getenv("OPENROUTER_MAX_TOKENS", "700"))
 OPENROUTER_TIMEOUT_S = float(os.getenv("OPENROUTER_TIMEOUT_S", "45"))
+
+# If enabled, allow client headers to provide OpenRouter key/model.
+ALLOW_CLIENT_OPENROUTER = os.getenv("ALLOW_CLIENT_OPENROUTER", "0") == "1"
+
+
+def _parse_bearer(auth_header: str) -> str:
+    if not auth_header:
+        return ""
+    parts = auth_header.split(" ", 1)
+    if len(parts) != 2:
+        return ""
+    if parts[0].lower() != "bearer":
+        return ""
+    return parts[1].strip()
+
+
+def _sanitize_model_id(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s or len(s) > 80:
+        return ""
+    # OpenRouter ids: vendor/model or vendor/model:variant
+    if not re.match(r"^[a-z0-9_.-]+/[a-z0-9_.:-]+$", s, re.IGNORECASE):
+        return ""
+    return s
+
+
+def _resolve_openrouter_overrides(request: Request) -> tuple[str, str]:
+    api_key = OPENROUTER_API_KEY
+    model = OPENROUTER_MODEL
+
+    if not ALLOW_CLIENT_OPENROUTER:
+        return api_key, model
+
+    client_key = _parse_bearer(request.headers.get("authorization") or "")
+    if client_key:
+        api_key = client_key
+
+    client_model = _sanitize_model_id(request.headers.get("x-fud-llm-model") or "")
+    if client_model:
+        model = client_model
+
+    return api_key, model
 
 
 async def _openrouter_stream(prompt: str):
@@ -165,21 +207,23 @@ async def _llm_stream(prompt: str):
         yield t
 
 
-async def _llm_generate(prompt: str) -> str:
+async def _llm_generate(
+    prompt: str, *, openrouter_key: str = "", openrouter_model: str = ""
+) -> str:
     """Generate text with either OpenRouter (if configured) or Ollama."""
 
-    if OPENROUTER_API_KEY:
+    if openrouter_key:
         url = f"{OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
         headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Authorization": f"Bearer {openrouter_key}",
             "Content-Type": "application/json",
             # OpenRouter recommends these for attribution/rate-limiting hygiene.
             "HTTP-Referer": "http://localhost",
             "X-Title": "fud-buddy",
         }
         body = {
-            "model": OPENROUTER_MODEL,
-            "temperature": 0.6,
+            "model": openrouter_model or OPENROUTER_MODEL,
+            "temperature": 0.5,
             "max_tokens": OPENROUTER_MAX_TOKENS,
             "messages": [
                 {
@@ -194,7 +238,7 @@ async def _llm_generate(prompt: str) -> str:
             if resp.status_code != 200:
                 detail = resp.text[:800]
                 raise RuntimeError(
-                    f"openrouter_error status={resp.status_code} model={OPENROUTER_MODEL} detail={detail}"
+                    f"openrouter_error status={resp.status_code} model={body.get('model')} detail={detail}"
                 )
 
             data = resp.json()
@@ -820,8 +864,8 @@ def _normalize_recommendations(items: list) -> list[dict]:
 
 
 @app.post("/api/chat/stream")
-async def chat_stream(request: ChatRequest):
-    prefs = request.preferences or {}
+async def chat_stream(request: Request, payload: ChatRequest):
+    prefs = payload.preferences or {}
     location = prefs.get("location", "near you")
     vibe = ", ".join(prefs.get("vibe", [])) or "good food"
     cuisine = ", ".join(prefs.get("cuisine", [])) or "any"
@@ -956,6 +1000,8 @@ Rules:
                     + "Return ONLY a single JSON object. No surrounding array. No markdown."
                 )
 
+            openrouter_key, openrouter_model = _resolve_openrouter_overrides(request)
+
             prompt_a = _option_prompt(
                 "Option A",
                 "Pick the cheaper/casual choice.",
@@ -968,7 +1014,11 @@ Rules:
             recs: list[dict] = []
 
             yield _sse({"type": "status", "content": "Writing option A..."})
-            text_a = await _llm_generate(prompt_a)
+            text_a = await _llm_generate(
+                prompt_a,
+                openrouter_key=openrouter_key,
+                openrouter_model=openrouter_model,
+            )
             obj_a = _extract_json_value(text_a)
             if not isinstance(obj_a, dict):
                 yield _sse(
@@ -1003,7 +1053,11 @@ Rules:
             yield _sse({"type": "option", "index": 0, "recommendation": rec_a})
 
             yield _sse({"type": "status", "content": "Writing option B..."})
-            text_b = await _llm_generate(prompt_b)
+            text_b = await _llm_generate(
+                prompt_b,
+                openrouter_key=openrouter_key,
+                openrouter_model=openrouter_model,
+            )
             obj_b = _extract_json_value(text_b)
             if not isinstance(obj_b, dict):
                 yield _sse(
