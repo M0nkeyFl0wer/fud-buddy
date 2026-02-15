@@ -1,0 +1,63 @@
+# Remote Video Pipeline (SSH -> Upload -> Process)
+
+Goal: run heavy video processing on a remote host (e.g. a GPU box) instead of your laptop.
+
+This repo intentionally does NOT store any SSH hostnames, usernames, keys, or tokens.
+Use placeholders like `REMOTE_USER@REMOTE_HOST` and keep real values in your shell history
+or a private ops doc.
+
+## Pattern
+
+1) Tunnel / connect to the remote host over SSH.
+2) Copy the video from your local machine to the remote host (SCP).
+3) Run processing on the remote host (ffmpeg / python / GPU model).
+4) Copy the resulting artifacts back (optional): transcripts, thumbnails, JSON, etc.
+
+## Scripts
+
+- `scripts/tunnel-ollama.sh` - forwards remote Ollama to localhost (11434)
+- `scripts/push-video.sh` - uploads a video to the remote host (timestamped path)
+- `scripts/process-video-remote.sh` - runs a configurable remote processing command
+- `scripts/pull-artifacts.sh` - downloads results from the remote host
+- `scripts/video-pipeline.sh` - end-to-end wrapper: upload -> process -> download
+
+## Example Workflow
+
+Upload a local video to the remote host:
+
+```bash
+./scripts/push-video.sh REMOTE_USER@REMOTE_HOST ./recordings/fud-demo.mp4
+```
+
+Run processing (default command is shown by `--help`). You can override the remote command
+to run anything you want (Whisper, frame extraction, a VLM, etc.):
+
+```bash
+REMOTE_PROCESS_CMD='python3 -m your_module.process_video --input "$REMOTE_INPUT" --out "$REMOTE_OUT"'
+./scripts/process-video-remote.sh REMOTE_USER@REMOTE_HOST /tmp/fud-video/fud-demo.mp4
+```
+
+Pull artifacts back to your machine:
+
+```bash
+./scripts/pull-artifacts.sh REMOTE_USER@REMOTE_HOST /tmp/fud-video/out ./artifacts/
+```
+
+Or run the full pipeline in one step:
+
+```bash
+LOCAL_ARTIFACTS_DIR=./artifacts/demo ./scripts/video-pipeline.sh REMOTE_USER@REMOTE_HOST ./recordings/fud-demo.mp4
+```
+
+## What We Still Need To Decide
+
+To wire this into the app (instead of manual scripts), we need to know what "process video"
+means in your workflow:
+
+- Transcription (Whisper) only?
+- Frame extraction + OCR?
+- A vision-language model summary?
+- Extract restaurant names/menus from TikTok/Instagram clips?
+
+Once you pick the target outputs, we can implement a concrete remote command and a stable
+artifact schema (e.g. `out/result.json`, `out/transcript.txt`, `out/thumbs/*.jpg`).
