@@ -108,7 +108,12 @@ const Config: React.FC = () => {
     const savedAiModel = localStorage.getItem('fud_llm_model');
     
     if (savedAiKey) setAiApiKey(savedAiKey);
-    if (savedAiModel) setAiModel(savedAiModel);
+    if (savedAiModel) {
+      // Normalize common aliases to valid OpenRouter model ids.
+      if (savedAiModel === 'google/gemini-2.0-flash') setAiModel('google/gemini-2.0-flash-001');
+      else if (savedAiModel === 'google/gemini-2.0-flash-lite') setAiModel('google/gemini-2.0-flash-lite-001');
+      else setAiModel(savedAiModel);
+    }
     
     // Load Analytics config
     const savedGaId = localStorage.getItem('fud_ga_id');
