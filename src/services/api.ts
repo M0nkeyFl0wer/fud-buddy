@@ -159,6 +159,16 @@ export type StreamEvent = Record<string, unknown> & {
   type?: string;
 };
 
+export interface FeedbackRequest {
+  session_id: string;
+  rating?: number;
+  went?: boolean;
+  comment?: string;
+  contact?: string;
+  consent_contact?: boolean;
+  consent_public?: boolean;
+}
+
 export interface Recommendation {
   restaurant: {
     name: string;
