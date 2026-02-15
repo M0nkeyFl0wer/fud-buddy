@@ -9,10 +9,24 @@ const DEFAULT_API_BASE_URL = (() => {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
+function getOrCreateClientId(): string {
+  try {
+    const existing = window.localStorage.getItem('fud_client_id');
+    if (existing) return existing;
+
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `fud_${Math.random().toString(16).slice(2)}${Date.now()}`;
+    window.localStorage.setItem('fud_client_id', id);
+    return id;
+  } catch {
+    return '';
+  }
+}
+
 class ApiClient {
   private baseUrl: string;
   private apiKey: string;
   private llmModel: string;
+  private clientId: string;
 
   constructor() {
     const storedBaseUrl =
@@ -25,6 +39,7 @@ class ApiClient {
     this.baseUrl = storedBaseUrl || API_BASE_URL;
     this.apiKey = storedApiKey || API_KEY;
     this.llmModel = storedLlmModel || '';
+    this.clientId = typeof window !== 'undefined' ? getOrCreateClientId() : '';
   }
 
   private getHeaders(): HeadersInit {
@@ -36,6 +51,9 @@ class ApiClient {
     }
     if (this.llmModel) {
       headers['X-FUD-LLM-Model'] = this.llmModel;
+    }
+    if (this.clientId) {
+      headers['X-FUD-Client-Id'] = this.clientId;
     }
     return headers;
   }
