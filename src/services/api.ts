@@ -12,15 +12,19 @@ const API_KEY = import.meta.env.VITE_API_KEY || '';
 class ApiClient {
   private baseUrl: string;
   private apiKey: string;
+  private llmModel: string;
 
   constructor() {
     const storedBaseUrl =
       typeof window !== 'undefined' ? window.localStorage.getItem('fud_api_base_url') : null;
     const storedApiKey =
       typeof window !== 'undefined' ? window.localStorage.getItem('fud_api_key') : null;
+    const storedLlmModel =
+      typeof window !== 'undefined' ? window.localStorage.getItem('fud_llm_model') : null;
 
     this.baseUrl = storedBaseUrl || API_BASE_URL;
     this.apiKey = storedApiKey || API_KEY;
+    this.llmModel = storedLlmModel || '';
   }
 
   private getHeaders(): HeadersInit {
@@ -29,6 +33,9 @@ class ApiClient {
     };
     if (this.apiKey) {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
+    }
+    if (this.llmModel) {
+      headers['X-FUD-LLM-Model'] = this.llmModel;
     }
     return headers;
   }
@@ -133,6 +140,17 @@ class ApiClient {
     this.apiKey = key;
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('fud_api_key', key);
+    }
+  }
+
+  setLlmModel(model: string): void {
+    this.llmModel = model;
+    if (typeof window !== 'undefined') {
+      if (model) {
+        window.localStorage.setItem('fud_llm_model', model);
+      } else {
+        window.localStorage.removeItem('fud_llm_model');
+      }
     }
   }
 }
