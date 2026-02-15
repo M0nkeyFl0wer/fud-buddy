@@ -12,14 +12,14 @@ export const ONBOARDING_MESSAGES = [
 ];
 
 export const SEARCHING_MESSAGES = [
-  "Judging restaurants on your behalf...",
-  "Searching the internet so you don't have to...",
-  "Finding what Reddit thinks about food around here...",
-  "Doing the google homework for you...",
-  "Asking around for the good stuff...",
-  "Looking for what people are actually talking about...",
-  "Finding the spots that won't embarrass you...",
-  "Digging through reviews for the gold...",
+  "Finding the best eats within walking distance...",
+  "Scanning for nearby gems you'll actually want to visit...",
+  "Hunting down local favorites around you...",
+  "Searching for spots worth leaving the hotel for...",
+  "Asking the internet what's good and close by...",
+  "Digging up the best dishes within reach...",
+  "Finding where the locals actually eat...",
+  "Scouting delicious options nearby...",
 ];
 
 export const RESULT_INTROS = [

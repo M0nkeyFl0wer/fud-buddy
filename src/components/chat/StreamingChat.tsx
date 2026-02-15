@@ -83,6 +83,7 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   const [loaderPhotos, setLoaderPhotos] = useState<string[]>([]);
   const [showBetaBanner, setShowBetaBanner] = useState(false);
   const [rateLimitInfo, setRateLimitInfo] = useState<{ hits: number; max: number } | null>(null);
+  const [currentLoaderIndex, setCurrentLoaderIndex] = useState(0);
 
   const [previous, setPrevious] = useState<{
     recommendations: Recommendation[];
@@ -353,27 +354,37 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
     );
   }, [preferences]);
 
+  // Rotate through loading images
+  useEffect(() => {
+    if (loaderPhotos.length === 0 || !isStreaming) return;
+    
+    const interval = setInterval(() => {
+      setCurrentLoaderIndex((prev) => (prev + 1) % loaderPhotos.length);
+    }, 2000); // Switch every 2 seconds
+    
+    return () => clearInterval(interval);
+  }, [loaderPhotos, isStreaming]);
+
   const loadingStrip = useMemo(() => {
-    const imgs = loaderPhotos.filter(Boolean).slice(0, 10);
+    const imgs = loaderPhotos.filter(Boolean);
     if (imgs.length === 0) return null;
+    
+    const currentImg = imgs[currentLoaderIndex % imgs.length];
+    
     return (
       <div className="mt-5 w-full">
-        <div className="mx-auto w-full max-w-[520px] overflow-hidden rounded-2xl border bg-muted/20">
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 p-3" aria-hidden="true">
-            {imgs.slice(0, 10).map((src, i) => (
-              <img
-                key={`${src}-${i}`}
-                src={src}
-                alt=""
-                loading="lazy"
-                className="aspect-square w-full object-cover rounded-xl border"
-              />
-            ))}
+        <div className="mx-auto w-full max-w-[320px]">
+          <div className="relative aspect-square overflow-hidden rounded-2xl border">
+            <img
+              src={currentImg}
+              alt=""
+              className="w-full h-full object-cover"
+            />
           </div>
         </div>
       </div>
     );
-  }, [loaderPhotos]);
+  }, [loaderPhotos, currentLoaderIndex]);
 
   const restorePrevious = () => {
     if (!previous) return;
