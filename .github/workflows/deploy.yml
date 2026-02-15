@@ -1,0 +1,64 @@
+name: Deploy to Dreamhost
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    - name: Install frontend dependencies
+      run: npm ci
+    
+    - name: Build frontend
+      run: npm run build
+      env:
+        VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install backend dependencies
+      run: |
+        cd fud-buddy-backend
+        pip install -r requirements.txt
+    
+    - name: Deploy to Dreamhost
+      env:
+        DREAMHOST_HOST: ${{ secrets.DREAMHOST_HOST }}
+        DREAMHOST_USER: ${{ secrets.DREAMHOST_USER }}
+        DREAMHOST_SSH_KEY: ${{ secrets.DREAMHOST_SSH_KEY }}
+      run: |
+        # Setup SSH
+        mkdir -p ~/.ssh
+        echo "$DREAMHOST_SSH_KEY" > ~/.ssh/dreamhost_key
+        chmod 600 ~/.ssh/dreamhost_key
+        cat >> ~/.ssh/config << EOF
+        Host dreamhost
+          HostName $DREAMHOST_HOST
+          User $DREAMHOST_USER
+          IdentityFile ~/.ssh/dreamhost_key
+          StrictHostKeyChecking no
+        EOF
+        
+        # Deploy frontend (static files)
+        rsync -avz --delete dist/ dreamhost:~/fud-buddy/frontend/
+        
+        # Deploy backend
+        rsync -avz --delete fud-buddy-backend/ dreamhost:~/fud-buddy/backend/
+        
+        # Restart backend (via SSH)
+        ssh dreamhost "cd ~/fud-buddy/backend && source venv/bin/activate && pip install -r requirements.txt && pkill -f 'uvicorn main:app' || true; nohup uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2 > app.log 2>&1 &"
