@@ -114,6 +114,57 @@ async def _openrouter_stream(prompt: str):
     # No return: async generator
 
 
+async def _ollama_stream(prompt: str):
+    url = f"{OLLAMA_BASE_URL.rstrip('/')}/api/generate"
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        async with client.stream(
+            "POST",
+            url,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": True,
+                "options": {
+                    "temperature": 0.5,
+                    "num_predict": 900,
+                },
+            },
+        ) as resp:
+            if resp.status_code != 200:
+                detail = ""
+                try:
+                    body = await resp.aread()
+                    detail = body.decode("utf-8", errors="replace")[:800]
+                except Exception:
+                    detail = ""
+                raise RuntimeError(
+                    f"ollama_error status={resp.status_code} model={OLLAMA_MODEL} detail={detail}"
+                )
+
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except Exception:
+                    continue
+                token = payload.get("response")
+                if isinstance(token, str) and token:
+                    yield token
+                if payload.get("done"):
+                    break
+
+
+async def _llm_stream(prompt: str):
+    if OPENROUTER_API_KEY:
+        async for t in _openrouter_stream(prompt):
+            yield t
+        return
+
+    async for t in _ollama_stream(prompt):
+        yield t
+
+
 async def _llm_generate(prompt: str) -> str:
     """Generate text with either OpenRouter (if configured) or Ollama."""
 
@@ -538,6 +589,70 @@ def _extract_json_value(text: str) -> Optional[Any]:
     return None
 
 
+def _try_parse_json_object_line(line: str) -> Optional[dict]:
+    s = (line or "").strip()
+    if not s:
+        return None
+    # Tolerate trailing commas.
+    if s.endswith(","):
+        s = s[:-1]
+    if not (s.startswith("{") and s.endswith("}")):
+        return None
+    try:
+        v = json.loads(s)
+    except Exception:
+        return None
+    return v if isinstance(v, dict) else None
+
+
+def _pop_first_json_object(text: str) -> tuple[Optional[str], str]:
+    """Pop the first complete JSON object substring from text.
+
+    This is a small incremental parser used to extract objects from streamed output.
+    It handles strings and escapes well enough for typical JSON.
+    """
+
+    if not text:
+        return None, text
+
+    start = text.find("{")
+    if start < 0:
+        return None, text
+
+    depth = 0
+    in_string = False
+    escape = False
+
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            depth += 1
+            continue
+        if ch == "}":
+            depth -= 1
+            if depth == 0:
+                obj_text = text[start : i + 1]
+                remaining = text[i + 1 :]
+                return obj_text, remaining
+            continue
+
+    return None, text
+
+
 def _maps_links(name: str, address: str) -> dict:
     q = " ".join([p for p in [name.strip(), address.strip()] if p]).strip()
     if not q:
@@ -815,15 +930,10 @@ Web search results (snippets + URLs):
 {search_context}
 
 Task:
-Return exactly 2 restaurant recommendations based on the web snippets.
-
-Each restaurant MUST include:
-- A short story (2-4 sentences) with personality, grounded in snippets.
-- A clear what-to-wear line.
-- Two meal options: an exact order and a backup order.
+Return exactly TWO restaurant recommendations based on the web snippets.
 
 CRITICAL output requirements:
-- Output MUST be a JSON array with exactly 2 objects.
+- Each recommendation MUST be a JSON object.
 - Each object MUST have ONLY these top-level keys: restaurant, whatToWear, order, backupOrder, story.
 - restaurant MUST have keys: name, address, priceRange, rating.
 - whatToWear MUST be a short string.
@@ -834,53 +944,98 @@ CRITICAL output requirements:
 Rules:
 - Prefer places that clearly appear in the snippets.
 - Keep story grounded in the snippets (no invented chefs/owners).
-- Output ONLY valid JSON array. No markdown. No extra keys."""
+- No markdown, no commentary, no extra keys."""
 
         try:
-            yield _sse({"type": "status", "content": "Writing your two options..."})
-            full_response = await _llm_generate(context)
 
-            parsed = _extract_json_value(full_response)
+            def _option_prompt(label: str, guidance: str) -> str:
+                return (
+                    context
+                    + "\n\n"
+                    + f"Now produce {label}. {guidance}\n"
+                    + "Return ONLY a single JSON object. No surrounding array. No markdown."
+                )
 
-            recommendations: Optional[list] = None
-            if isinstance(parsed, list):
-                recommendations = parsed
-            elif isinstance(parsed, dict) and isinstance(
-                parsed.get("recommendations"), list
-            ):
-                recommendations = parsed.get("recommendations")
+            prompt_a = _option_prompt(
+                "Option A",
+                "Pick the cheaper/casual choice.",
+            )
+            prompt_b = _option_prompt(
+                "Option B",
+                "Pick the pricier/special choice.",
+            )
 
-            if recommendations is None:
+            recs: list[dict] = []
+
+            yield _sse({"type": "status", "content": "Writing option A..."})
+            text_a = await _llm_generate(prompt_a)
+            obj_a = _extract_json_value(text_a)
+            if not isinstance(obj_a, dict):
                 yield _sse(
                     {
                         "type": "error",
-                        "message": "Model returned invalid JSON. Try again.",
-                        "rawPreview": full_response[:500],
+                        "message": "Model returned invalid JSON for option A.",
+                        "rawPreview": str(text_a)[:500],
                     }
                 )
                 yield _sse({"type": "done"})
                 return
 
-            normalized = _normalize_recommendations(recommendations)
-            if len(normalized) < 2:
+            norm_a = _normalize_recommendations([obj_a])
+            if not norm_a:
                 yield _sse(
                     {
                         "type": "error",
-                        "message": "Model returned unusable structure. Try again.",
-                        "rawPreview": full_response[:500],
+                        "message": "Model returned unusable structure for option A.",
+                        "rawPreview": str(text_a)[:500],
                     }
                 )
                 yield _sse({"type": "done"})
                 return
 
-            # Attach maps links + try to find OG images from the top sources.
-            recs = normalized[:2]
-            for r in recs:
-                rest = r.get("restaurant") or {}
-                if isinstance(rest, dict):
-                    r["maps"] = _maps_links(
-                        str(rest.get("name") or ""), str(rest.get("address") or "")
-                    )
+            rec_a = norm_a[0]
+            rest_a = rec_a.get("restaurant") or {}
+            if isinstance(rest_a, dict):
+                rec_a["maps"] = _maps_links(
+                    str(rest_a.get("name") or ""), str(rest_a.get("address") or "")
+                )
+            recs.append(rec_a)
+            yield _sse({"type": "option", "index": 0, "recommendation": rec_a})
+
+            yield _sse({"type": "status", "content": "Writing option B..."})
+            text_b = await _llm_generate(prompt_b)
+            obj_b = _extract_json_value(text_b)
+            if not isinstance(obj_b, dict):
+                yield _sse(
+                    {
+                        "type": "error",
+                        "message": "Model returned invalid JSON for option B.",
+                        "rawPreview": str(text_b)[:500],
+                    }
+                )
+                yield _sse({"type": "done"})
+                return
+
+            norm_b = _normalize_recommendations([obj_b])
+            if not norm_b:
+                yield _sse(
+                    {
+                        "type": "error",
+                        "message": "Model returned unusable structure for option B.",
+                        "rawPreview": str(text_b)[:500],
+                    }
+                )
+                yield _sse({"type": "done"})
+                return
+
+            rec_b = norm_b[0]
+            rest_b = rec_b.get("restaurant") or {}
+            if isinstance(rest_b, dict):
+                rec_b["maps"] = _maps_links(
+                    str(rest_b.get("name") or ""), str(rest_b.get("address") or "")
+                )
+            recs.append(rec_b)
+            yield _sse({"type": "option", "index": 1, "recommendation": rec_b})
 
             # Best-effort image URLs (parallel)
             async def _img_for(rec: dict) -> str:
@@ -924,6 +1079,9 @@ Rules:
             for i, img in enumerate(imgs):
                 if isinstance(img, str) and img:
                     recs[i]["imageUrl"] = img
+                    yield _sse(
+                        {"type": "enrich", "index": i, "patch": {"imageUrl": img}}
+                    )
 
             await _persist_session(session_id, prefs, recs, sources=sources)
 
