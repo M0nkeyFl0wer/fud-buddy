@@ -14,7 +14,9 @@ import { Link } from 'react-router-dom';
 const Config: React.FC = () => {
   // AI Configuration
   const [aiApiKey, setAiApiKey] = useState<string>('');
-  const [aiModel, setAiModel] = useState<string>('google/gemini-2.0-flash');
+  const [aiModel, setAiModel] = useState<string>('google/gemini-2.0-flash-001');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
   
   // Analytics Configuration
   const [googleAnalyticsId, setGoogleAnalyticsId] = useState<string>('');
@@ -45,6 +47,28 @@ const Config: React.FC = () => {
         description: "Failed to save API configuration.",
         variant: "destructive"
       });
+    }
+  };
+
+  const handleLoadModels = async () => {
+    setIsLoadingModels(true);
+    try {
+      // Uses the bearer token you saved via apiClient.setApiKey
+      const resp = await apiClient.get<{ ok?: boolean; models?: string[] }>('/api/openrouter/models');
+      const models = Array.isArray(resp?.models) ? resp.models.filter((m) => typeof m === 'string') : [];
+      setAvailableModels(models);
+      toast({
+        title: 'Models loaded',
+        description: models.length > 0 ? `Found ${models.length} models.` : 'No models returned.',
+      });
+    } catch (e) {
+      toast({
+        title: 'Could not load models',
+        description: e instanceof Error ? e.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingModels(false);
     }
   };
 
@@ -143,16 +167,36 @@ const Config: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="aiModel">Model</Label>
-                <select
-                  id="aiModel"
-                  value={aiModel}
-                  onChange={(e) => setAiModel(e.target.value)}
-                  className="w-full p-2 border rounded-md"
-                >
-                  <option value="google/gemini-2.0-flash">Gemini 2.0 Flash</option>
-                  <option value="minimax/minimax-01">Minimax 01</option>
-                  <option value="moonshotai/kimi-k2">Kimi K2</option>
-                </select>
+                <div className="flex gap-2">
+                  <Input
+                    id="aiModel"
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                    placeholder="vendor/model"
+                  />
+                  <Button type="button" variant="outline" onClick={handleLoadModels} disabled={isLoadingModels}>
+                    {isLoadingModels ? 'Loading...' : 'Load'}
+                  </Button>
+                </div>
+                {availableModels.length > 0 ? (
+                  <select
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                    className="w-full p-2 border rounded-md"
+                  >
+                    {availableModels
+                      .filter((m) => /^(google|minimax|moonshotai)\//.test(m))
+                      .slice(0, 80)
+                      .map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                  </select>
+                ) : null}
+                <div className="text-xs text-muted-foreground">
+                  If you see “not a valid model ID”, click Load and pick one from the list.
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="apiBaseUrl">API Base URL</Label>
