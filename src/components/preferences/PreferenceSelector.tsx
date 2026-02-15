@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { VibePicker } from './VibePicker';
 import { MapPin, Loader2, Sparkles } from 'lucide-react';
-import type { UserPreferences } from '@/services/api';
+import { apiClient, type UserPreferences } from '@/services/api';
 import { ONBOARDING_MESSAGES } from '@/services/messages';
 import RobotLogo from '@/components/RobotLogo';
 import { DietaryRestrictionsDropdown } from './DietaryRestrictionsDropdown';
@@ -24,6 +24,18 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
   }, []);
 
   const reverseGeocode = useCallback(async (lat: number, lon: number): Promise<string> => {
+    // Prefer backend reverse geocode (avoids browser CORS issues and sets a real User-Agent).
+    try {
+      const resp = await apiClient.get<{ ok?: boolean; display?: string }>(
+        `/api/geocode/reverse?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}`
+      );
+      if (resp?.ok && typeof resp.display === 'string' && resp.display) {
+        return resp.display;
+      }
+    } catch {
+      // Fall back to client-side Nominatim.
+    }
+
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 4500);
     try {
