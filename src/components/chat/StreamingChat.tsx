@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -80,6 +80,52 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
 
   const [cuteIndex, setCuteIndex] = useState(0);
   const [llmInfo, setLlmInfo] = useState<{ provider: string; model: string } | null>(null);
+  const [loaderPhotos, setLoaderPhotos] = useState<string[]>([]);
+
+  const [previous, setPrevious] = useState<{
+    recommendations: Recommendation[];
+    sources: Source[];
+    currentIndex: number;
+    sessionId: string | null;
+    sessionCreatedAt: string | null;
+    feedbackWent: boolean | null;
+    feedbackRating: number | null;
+    llmInfo: { provider: string; model: string } | null;
+  } | null>(null);
+
+  const recommendationsRef = useRef(recommendations);
+  const sourcesRef = useRef(sources);
+  const currentIndexRef = useRef(currentIndex);
+  const sessionIdRef = useRef(sessionId);
+  const sessionCreatedAtRef = useRef(sessionCreatedAt);
+  const feedbackWentRef = useRef(feedbackWent);
+  const feedbackRatingRef = useRef(feedbackRating);
+  const llmInfoRef = useRef(llmInfo);
+
+  useEffect(() => {
+    recommendationsRef.current = recommendations;
+  }, [recommendations]);
+  useEffect(() => {
+    sourcesRef.current = sources;
+  }, [sources]);
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+  useEffect(() => {
+    sessionCreatedAtRef.current = sessionCreatedAt;
+  }, [sessionCreatedAt]);
+  useEffect(() => {
+    feedbackWentRef.current = feedbackWent;
+  }, [feedbackWent]);
+  useEffect(() => {
+    feedbackRatingRef.current = feedbackRating;
+  }, [feedbackRating]);
+  useEffect(() => {
+    llmInfoRef.current = llmInfo;
+  }, [llmInfo]);
 
   const formatError = (msg: string): string => {
     const prefix = 'openrouter_error ';
@@ -102,6 +148,53 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   };
 
   const generateRecommendations = useCallback(() => {
+    // Keep an undo buffer so accidental refresh isn't painful.
+    const prevRecs = recommendationsRef.current;
+    if (prevRecs.length > 0) {
+      setPrevious({
+        recommendations: prevRecs,
+        sources: sourcesRef.current,
+        currentIndex: currentIndexRef.current,
+        sessionId: sessionIdRef.current,
+        sessionCreatedAt: sessionCreatedAtRef.current,
+        feedbackWent: feedbackWentRef.current,
+        feedbackRating: feedbackRatingRef.current,
+        llmInfo: llmInfoRef.current,
+      });
+    }
+
+    // Try to show real food photos while we wait.
+    const prevImgs = prevRecs
+      .map((r) => (r && typeof r.imageUrl === 'string' ? r.imageUrl : ''))
+      .filter(Boolean)
+      .slice(0, 6);
+    setLoaderPhotos(prevImgs);
+    // Fill from backend if needed (best-effort).
+    void (async () => {
+      try {
+        const vibe = preferences.vibe?.[0] || '';
+        const loc = preferences.location || '';
+        const resp = await apiClient.get<{ ok?: boolean; images?: string[] }>(
+          `/api/loader/images?location=${encodeURIComponent(loc)}&vibe=${encodeURIComponent(vibe)}`
+        );
+        const imgs = Array.isArray(resp?.images) ? resp.images.filter((s) => typeof s === 'string') : [];
+        if (imgs.length === 0) return;
+        setLoaderPhotos((cur) => {
+          const seen = new Set(cur);
+          const next = cur.slice();
+          for (const u of imgs) {
+            if (!u || seen.has(u)) continue;
+            seen.add(u);
+            next.push(u);
+            if (next.length >= 10) break;
+          }
+          return next;
+        });
+      } catch {
+        // ignore
+      }
+    })();
+
     setIsStreaming(true);
     setError(null);
     setRecommendations([]);
@@ -239,6 +332,42 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
       }
     );
   }, [preferences]);
+
+  const loadingStrip = useMemo(() => {
+    const imgs = loaderPhotos.filter(Boolean).slice(0, 10);
+    if (imgs.length === 0) return null;
+    return (
+      <div className="mt-5 w-full">
+        <div className="mx-auto w-full max-w-[520px] overflow-hidden rounded-2xl border bg-muted/20">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 p-3" aria-hidden="true">
+            {imgs.slice(0, 10).map((src, i) => (
+              <img
+                key={`${src}-${i}`}
+                src={src}
+                alt=""
+                loading="lazy"
+                className="aspect-square w-full object-cover rounded-xl border"
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }, [loaderPhotos]);
+
+  const restorePrevious = () => {
+    if (!previous) return;
+    setIsStreaming(false);
+    setError(null);
+    setRecommendations(previous.recommendations);
+    setSources(previous.sources);
+    setCurrentIndex(previous.currentIndex);
+    setSessionId(previous.sessionId);
+    setSessionCreatedAt(previous.sessionCreatedAt);
+    setFeedbackWent(previous.feedbackWent);
+    setFeedbackRating(previous.feedbackRating);
+    setLlmInfo(previous.llmInfo);
+  };
 
   useEffect(() => {
     generateRecommendations();
@@ -383,9 +512,11 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
             <RefreshCw className="w-8 h-8 animate-spin mb-4" />
             <p className="text-sm">{SEARCHING_MESSAGES[cuteIndex] || 'Finding you options...'}</p>
             <p className="text-xs mt-2 opacity-80">{statusMessage || 'Cooking...'} </p>
-            <div className="mt-5 w-full">
-              <FoodVegas density={10} />
-            </div>
+            {loadingStrip || (
+              <div className="mt-5 w-full">
+                <FoodVegas density={10} />
+              </div>
+            )}
           </div>
         )}
 
@@ -429,13 +560,15 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                   </div>
                 )}
                 {current.imageUrl ? (
-                  <div className="-mx-6 -mt-6">
-                    <img
-                      src={current.imageUrl}
-                      alt=""
-                      className="h-44 w-full object-cover rounded-t-lg"
-                      loading="lazy"
-                    />
+                  <div className="-mx-6 -mt-6 pt-4">
+                    <div className="mx-auto w-full max-w-[420px] px-6">
+                      <img
+                        src={current.imageUrl}
+                        alt=""
+                        className="aspect-square w-full object-cover rounded-2xl border"
+                        loading="lazy"
+                      />
+                    </div>
                   </div>
                 ) : null}
                 <div className="text-center">
@@ -451,6 +584,27 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                   <p className="text-sm text-muted-foreground">
                     {current.restaurant.address}
                   </p>
+
+                  {(Array.isArray(current.signals) && current.signals.length > 0) ||
+                  (Array.isArray(current.peopleSay) && current.peopleSay.length > 0) ? (
+                    <div className="mt-3 mx-auto max-w-[520px] rounded-xl border bg-muted/20 p-3 text-sm">
+                      {Array.isArray(current.signals) && current.signals.length > 0 ? (
+                        <div className="flex flex-wrap gap-2 justify-center">
+                          {current.signals.slice(0, 4).map((s) => (
+                            <span
+                              key={s}
+                              className="px-2.5 py-1 rounded-full bg-background border text-xs"
+                            >
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      {Array.isArray(current.peopleSay) && current.peopleSay.length > 0 ? (
+                        <div className="mt-2 text-muted-foreground italic">“{current.peopleSay[0]?.text}”</div>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   {current.maps?.google || current.maps?.apple ? (
                     <div className="mt-3 flex flex-wrap justify-center gap-2">
@@ -476,37 +630,47 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
 
                 <div className="space-y-3">
                   {(current.order?.main || current.order?.side || current.order?.drink) ? (
-                    <div>
-                      <h4 className="font-semibold mb-2">Order this:</h4>
-                      <div className="grid gap-1 text-sm">
-                        {current.order?.main ? <div><span className="text-muted-foreground">Main:</span> {current.order.main}</div> : null}
-                        {current.order?.side ? <div><span className="text-muted-foreground">Side:</span> {current.order.side}</div> : null}
-                        {current.order?.drink ? <div><span className="text-muted-foreground">Drink:</span> {current.order.drink}</div> : null}
+                    <div className="rounded-2xl border-2 border-fud-teal/40 bg-background p-4">
+                      <div className="text-center">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                          Order This
+                        </div>
+                        {current.order?.main ? (
+                          <div className="mt-2 text-2xl sm:text-3xl font-extrabold leading-tight">
+                            {current.order.main}
+                          </div>
+                        ) : null}
+                        <div className="mt-3 grid gap-1 text-sm">
+                          {current.order?.side ? <div><span className="text-muted-foreground">Side:</span> {current.order.side}</div> : null}
+                          {current.order?.drink ? <div><span className="text-muted-foreground">Drink:</span> {current.order.drink}</div> : null}
+                        </div>
                       </div>
                     </div>
                   ) : null}
 
                   {(current.backupOrder?.main || current.backupOrder?.side || current.backupOrder?.drink) ? (
-                    <div>
-                      <h4 className="font-semibold mb-2">Backup:</h4>
-                      <div className="grid gap-1 text-sm">
+                    <details className="rounded-xl border bg-muted/20 p-3">
+                      <summary className="cursor-pointer select-none font-semibold">Backup order</summary>
+                      <div className="mt-2 grid gap-1 text-sm">
                         {current.backupOrder?.main ? <div><span className="text-muted-foreground">Main:</span> {current.backupOrder.main}</div> : null}
                         {current.backupOrder?.side ? <div><span className="text-muted-foreground">Side:</span> {current.backupOrder.side}</div> : null}
                         {current.backupOrder?.drink ? <div><span className="text-muted-foreground">Drink:</span> {current.backupOrder.drink}</div> : null}
                       </div>
-                    </div>
+                    </details>
                   ) : null}
 
                   {(!current.order?.main && current.dishes && current.dishes.length > 0) ? (
-                    <div>
-                      <h4 className="font-semibold mb-2">What to get:</h4>
-                      <ul className="space-y-2">
+                    <div className="rounded-2xl border-2 border-fud-teal/40 bg-background p-4">
+                      <div className="text-center">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                          What To Get
+                        </div>
+                      </div>
+                      <ul className="mt-3 space-y-2">
                         {current.dishes.map((dish, i) => (
-                          <li key={i} className="flex gap-2">
-                            <span className="text-primary">•</span>
-                            <span>
-                              <strong>{dish.name}</strong> — {dish.description}
-                            </span>
+                          <li key={i} className="text-sm">
+                            <strong className="text-base">{dish.name}</strong>
+                            {dish.description ? <span className="text-muted-foreground"> — {dish.description}</span> : null}
                           </li>
                         ))}
                       </ul>
@@ -521,7 +685,7 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
 
                 {Array.isArray(current.signals) && current.signals.length > 0 ? (
                   <div className="border-t pt-4">
-                    <h4 className="font-semibold mb-2">Known vibes:</h4>
+                    <h4 className="font-semibold mb-2">Local favourites:</h4>
                     <div className="flex flex-wrap gap-2">
                       {current.signals.slice(0, 6).map((s) => (
                         <span key={s} className="text-xs rounded-full border px-3 py-1 bg-muted/30">
@@ -656,6 +820,17 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                 History
               </Button>
             ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={restorePrevious}
+              className="gap-2"
+              disabled={!previous}
+              title={previous ? 'Back to last results' : 'No previous results'}
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Back
+            </Button>
             <Button variant="default" size="lg" onClick={generateRecommendations} className="gap-2">
               <RefreshCw className="w-4 h-4" />
               Try again

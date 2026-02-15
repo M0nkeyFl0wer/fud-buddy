@@ -10,6 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 import uuid
 import re
 import asyncio
+import math
 from urllib.parse import quote_plus
 import html
 import ipaddress
@@ -43,6 +44,26 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
 SEARXNG_URL = os.getenv("SEARXNG_URL", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+NOMINATIM_URL = os.getenv(
+    "NOMINATIM_URL", "https://nominatim.openstreetmap.org"
+).rstrip("/")
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        v = os.getenv(name)
+        if v is None or v == "":
+            return default
+        return float(v)
+    except Exception:
+        return default
+
+
+MAX_TRAVEL_KM_DEFAULT = _env_float("MAX_TRAVEL_KM_DEFAULT", 35.0)
+
+TRAVEL_KM_PER_MIN = _env_float("TRAVEL_KM_PER_MIN", 1.0)
+MAX_TRAVEL_KM_CAP_DEFAULT = _env_float("MAX_TRAVEL_KM_CAP_DEFAULT", 70.0)
 
 # Optional: OpenRouter (OpenAI-compatible) for faster testing
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -560,6 +581,45 @@ async def reverse_geocode(lat: float, lon: float):
         return {"ok": False, "display": "", "error": str(e)}
 
 
+@app.get("/api/loader/images")
+async def loader_images(location: str = "", vibe: str = ""):
+    """Return a few food photo URLs for the loading screen.
+
+    This is best-effort and intentionally lightweight.
+    """
+
+    loc = (location or "").strip()
+    vb = (vibe or "").strip().replace("-", " ")
+    if _looks_like_coords(loc):
+        loc = "nearby"
+
+    parts = ["food", "dish", "photo"]
+    if vb:
+        parts.insert(1, vb)
+    if loc and loc.lower() not in ("near me", "near you"):
+        parts.insert(1, loc)
+    q = " ".join([p for p in parts if p])
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            items = await search_images(q, client=client)
+    except Exception:
+        items = []
+
+    urls: list[str] = []
+    for it in items[:18]:
+        if not isinstance(it, dict):
+            continue
+        img = _pick_image_url(it)
+        if not img or _is_bad_image_url(img):
+            continue
+        urls.append(img)
+        if len(urls) >= 10:
+            break
+
+    return {"ok": True, "images": urls}
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     global db_pool
@@ -782,6 +842,81 @@ def _looks_like_coords(s: str) -> bool:
     return bool(re.match(r"^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$", s or ""))
 
 
+def _parse_coords(s: str) -> Optional[tuple[float, float]]:
+    if not _looks_like_coords(s):
+        return None
+    try:
+        a, b = (s or "").split(",", 1)
+        lat = float(a.strip())
+        lon = float(b.strip())
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            return None
+        return (lat, lon)
+    except Exception:
+        return None
+
+
+def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    lat1, lon1 = a
+    lat2, lon2 = b
+
+    r = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    x = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
+    )
+    return 2 * r * math.asin(min(1.0, math.sqrt(x)))
+
+
+async def _forward_geocode(place: str) -> Optional[tuple[float, float]]:
+    """Best-effort forward geocode to lat/lon.
+
+    Uses Nominatim (no keys). Returns None on failure.
+    """
+
+    q = (place or "").strip()
+    if not q:
+        return None
+
+    url = f"{NOMINATIM_URL}/search"
+    params = {
+        "format": "jsonv2",
+        "q": q,
+        "limit": "1",
+    }
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "fud-buddy-dev/1.0",
+        "Accept-Language": "en",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
+            resp = await client.get(url, params=params, headers=headers)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            if not isinstance(data, list) or not data:
+                return None
+            top = data[0]
+            if not isinstance(top, dict):
+                return None
+            lat_raw = top.get("lat")
+            lon_raw = top.get("lon")
+            if lat_raw is None or lon_raw is None:
+                return None
+            lat = float(str(lat_raw))
+            lon = float(str(lon_raw))
+            if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+                return None
+            return (lat, lon)
+    except Exception:
+        return None
+
+
 def _extract_json_array(text: str) -> Optional[list]:
     # Find the first JSON array in the text.
     import re
@@ -969,6 +1104,9 @@ def _is_bad_source_url(url: str) -> bool:
             "facebook.com",
             "m.facebook.com",
             "instagram.com",
+            "tiktok.com",
+            "x.com",
+            "twitter.com",
             "reddit.com",
             "yelp.",
             "opentable.",
@@ -993,7 +1131,29 @@ def _is_bad_image_url(url: str) -> bool:
     u = (url or "").lower()
     if not u.startswith("http"):
         return True
-    if any(x in u for x in ("logo", "banner", "header", "icon", ".svg")):
+    if u.startswith("data:"):
+        return True
+    if any(
+        x in u
+        for x in (
+            "logo",
+            "banner",
+            "header",
+            "icon",
+            "favicon",
+            "sprite",
+            "placeholder",
+            "default",
+            "blank",
+            "spacer",
+            "transparent",
+            "pixel",
+            "tracking",
+            "ads",
+            ".svg",
+            ".gif",
+        )
+    ):
         return True
     if _is_bad_source_url(u):
         return True
@@ -1013,21 +1173,81 @@ def _extract_place_chatter(name: str, results: list[dict]) -> list[dict]:
 
     if not name:
         return []
-    n = name.lower()
-    out: list[dict] = []
-    for r in results:
+    n = name.lower().strip()
+
+    # Token match helps when pages abbreviate punctuation (&, etc.).
+    tokens = [t for t in re.split(r"[^a-z0-9]+", n) if len(t) >= 4]
+
+    def _matches(hay: str) -> bool:
+        if not hay:
+            return False
+        if n and n in hay:
+            return True
+        if tokens:
+            hits = sum(1 for t in tokens if t in hay)
+            need = 2 if len(tokens) >= 2 else 1
+            return hits >= need
+        return False
+
+    def _score(url: str, title: str, content: str) -> int:
+        u = (url or "").lower()
+        t = (title or "").lower()
+        c = (content or "").lower()
+        s = 0
+
+        # Prefer stronger review/curation sources when available.
+        if "tripadvisor." in u:
+            s += 6
+        if any(
+            k in u for k in ("blogto.", "torontolife.", "eater.", "theinfatuation.")
+        ):
+            s += 4
+        if "google.com" in u and "maps" in u:
+            s += 2
+
+        # Prefer more descriptive snippets.
+        ln = len(content.strip())
+        s += min(4, ln // 60)
+
+        # Boost if the snippet reads like an actual quote.
+        if any(ch in content for ch in ('"', "“", "”")):
+            s += 2
+
+        # Penalize generic directory/listing boilerplate.
+        if any(
+            k in (t + " " + c) for k in ("hours", "directions", "phone", "reservations")
+        ):
+            s -= 1
+        return s
+
+    candidates: list[dict] = []
+    seen_urls: set[str] = set()
+    for r in results[:24]:
         title = _clean_snippet(str(r.get("title") or ""))
         content = _clean_snippet(str(r.get("content") or ""))
         url = str(r.get("url") or "").strip()
-        if not url:
+        if not url or url in seen_urls:
             continue
         hay = (title + " " + content).lower()
-        if n not in hay:
+        if not _matches(hay):
             continue
         snippet = content or title
         if not snippet:
             continue
-        out.append({"text": snippet[:180], "url": url, "title": title[:120]})
+        seen_urls.add(url)
+        candidates.append(
+            {
+                "text": snippet[:220],
+                "url": url,
+                "title": title[:120],
+                "_score": _score(url, title, content),
+            }
+        )
+
+    candidates.sort(key=lambda x: int(x.get("_score") or 0), reverse=True)
+    out: list[dict] = []
+    for c in candidates[:3]:
+        out.append({"text": c["text"], "url": c["url"], "title": c.get("title") or ""})
         if len(out) >= 2:
             break
     return out
@@ -1195,6 +1415,120 @@ async def chat_stream(request: Request, payload: ChatRequest):
         display_location = (
             "your area" if _looks_like_coords(str(location)) else location
         )
+
+        # Best-effort travel constraints: keep results local.
+        # (This prevents the model from suggesting far-away big-city options.)
+        def _pref_float(p: dict, *keys: str, default: float) -> float:
+            for k in keys:
+                v = p.get(k)
+                if v is None or v == "":
+                    continue
+                try:
+                    return float(v)
+                except Exception:
+                    continue
+            return default
+
+        def _travel_attempts_km(p: dict) -> list[float]:
+            max_min = _pref_float(
+                p,
+                "maxTravelMin",
+                "max_travel_min",
+                "maxDistanceMin",
+                "max_distance_min",
+                default=0.0,
+            )
+            if max_min > 0:
+                base_km = max_min * TRAVEL_KM_PER_MIN
+            else:
+                base_km = _pref_float(
+                    p,
+                    "maxTravelKm",
+                    "max_travel_km",
+                    "maxDistanceKm",
+                    "max_distance_km",
+                    default=MAX_TRAVEL_KM_DEFAULT,
+                )
+
+            # Widen in small increments (e.g. 20 -> 30 -> 40), never 20 -> 90.
+            step_km = 10.0
+            cap_km = min(MAX_TRAVEL_KM_CAP_DEFAULT, max(10.0, base_km) + 25.0)
+
+            attempts: list[float] = []
+            for k in (base_km, base_km + step_km, base_km + 2 * step_km):
+                km = float(max(5.0, min(cap_km, k)))
+                if km not in attempts:
+                    attempts.append(km)
+            return attempts
+
+        travel_attempts_km = _travel_attempts_km(prefs)
+        base_travel_km = (
+            travel_attempts_km[0] if travel_attempts_km else MAX_TRAVEL_KM_DEFAULT
+        )
+
+        origin = None
+        try:
+            po = prefs.get("origin")
+            if isinstance(po, dict):
+                lat = po.get("lat")
+                lon = po.get("lon")
+                if lat is not None and lon is not None:
+                    origin = (float(str(lat)), float(str(lon)))
+        except Exception:
+            origin = None
+
+        if origin is None:
+            origin = _parse_coords(str(location))
+        if origin is None and str(location).strip() and str(location) != "near you":
+            origin = await _forward_geocode(str(location))
+
+        location_hint = ""
+        if str(location).strip() and str(location) != "near you":
+            location_hint = f"Only recommend places in/near {str(location).strip()}."
+
+        def _travel_hint_for(km: float) -> str:
+            if not str(location).strip() or str(location) == "near you":
+                return ""
+            if origin is not None:
+                return f"Only recommend places within about {km:.0f} km of {str(location).strip()}."
+            return location_hint
+
+        async def _is_too_far(restaurant: Any, *, max_km: float) -> bool:
+            if not isinstance(restaurant, dict):
+                return False
+            name = str(restaurant.get("name") or "").strip()
+            addr = str(restaurant.get("address") or "").strip()
+
+            # Fast string guard for common "big city" drift.
+            try:
+                loc_l = str(location).lower()
+                addr_l = addr.lower()
+                for city in (
+                    "toronto",
+                    "ottawa",
+                    "montreal",
+                    "vancouver",
+                    "calgary",
+                    "edmonton",
+                ):
+                    if city in addr_l and city not in loc_l:
+                        return True
+            except Exception:
+                pass
+
+            if origin is None:
+                return False
+            q = (name + " " + addr).strip()
+            if not q:
+                return False
+            coords = await _forward_geocode(q)
+            if coords is None:
+                return False
+            try:
+                return _haversine_km(origin, coords) > max_km
+            except Exception:
+                return False
+
         yield _sse(
             {
                 "type": "status",
@@ -1205,12 +1539,12 @@ async def chat_stream(request: Request, payload: ChatRequest):
         # Build search queries (keep these tight; we just need candidates and context)
         # Minimize queries for responsiveness.
         base_query = (
-            f"restaurants {location}"
+            f"restaurants in {location}"
             if cuisine == "any"
-            else f"{cuisine} restaurants {location}"
+            else f"{cuisine} restaurants in {location}"
         )
         searches = [
-            f"best {vibe} {base_query}",
+            f"best {vibe.replace('-', ' ')} {base_query}",
             f"top rated {base_query}",
         ]
 
@@ -1254,26 +1588,59 @@ async def chat_stream(request: Request, payload: ChatRequest):
             yield _sse({"type": "done"})
             return
 
-        sources = [
-            {
-                "title": (r.get("title") or "").strip(),
-                "url": (r.get("url") or "").strip(),
-                "engine": (r.get("engine") or "").strip(),
-            }
-            for r in dedup[:6]
-        ]
+        def _make_sources(items: list[dict]) -> list[dict]:
+            return [
+                {
+                    "title": (r.get("title") or "").strip(),
+                    "url": (r.get("url") or "").strip(),
+                    "engine": (r.get("engine") or "").strip(),
+                }
+                for r in items
+                if (r.get("url") or "").strip()
+            ]
 
-        search_context_lines: list[str] = []
-        for r in dedup[:6]:
-            title = (r.get("title") or "").strip()
-            url = (r.get("url") or "").strip()
-            snippet = (r.get("content") or "").strip().replace("\n", " ")
-            engine = (r.get("engine") or "").strip()
-            if snippet:
-                snippet = snippet[:180]
-            search_context_lines.append(f"- {title} ({engine})\n  {url}\n  {snippet}")
+        def _make_search_context(items: list[dict]) -> str:
+            lines: list[str] = []
+            for r in items:
+                title = (r.get("title") or "").strip()
+                url = (r.get("url") or "").strip()
+                snippet = (r.get("content") or "").strip().replace("\n", " ")
+                engine = (r.get("engine") or "").strip()
+                if snippet:
+                    snippet = snippet[:180]
+                lines.append(f"- {title} ({engine})\n  {url}\n  {snippet}")
+            return "\n".join(lines)
 
-        search_context = "\n".join(search_context_lines)
+        # Split sources so Option B is grounded in a different set.
+        dedup_a = dedup[:6]
+        dedup_b = dedup[6:12]
+        if len(dedup_b) < 4:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=12.0, follow_redirects=True
+                ) as search_client:
+                    more = await search_web(
+                        f"best {vibe} restaurants {location} hidden gem",
+                        client=search_client,
+                    )
+                for r in more:
+                    url = (r.get("url") or "").strip()
+                    if not url or url in seen:
+                        continue
+                    seen.add(url)
+                    dedup_b.append(r)
+                    if len(dedup_b) >= 6:
+                        break
+            except Exception:
+                pass
+
+        sources_a = _make_sources(dedup_a)
+        sources_b = _make_sources(dedup_b)
+        urls_a = {s.get("url") for s in sources_a}
+        sources = sources_a + [s for s in sources_b if s.get("url") not in urls_a]
+
+        search_context_a = _make_search_context(dedup_a)
+        search_context_b = _make_search_context(dedup_b if dedup_b else dedup_a)
 
         yield _sse(
             {"type": "status", "content": "Found some chatter. Cooking up two picks..."}
@@ -1281,13 +1648,15 @@ async def chat_stream(request: Request, payload: ChatRequest):
 
         # Use LLM to generate recommendations.
         # IMPORTANT: We do not fabricate private identity info; story focuses on the venue.
-        context = f"""You are FUD Buddy: witty, slightly sassy, extremely helpful.
+        def _build_context(search_context: str) -> str:
+            return f"""You are FUD Buddy: witty, slightly sassy, extremely helpful.
 
 User context:
 - Location: {location}
 - Vibe: {vibe}
 - Cuisine: {cuisine}
 - Dietary: {dietary}
+
 
 Web search results (snippets + URLs):
 {search_context}
@@ -1310,13 +1679,22 @@ Rules:
 - Keep story grounded in the snippets (no invented chefs/owners).
 - No markdown, no commentary, no extra keys."""
 
+        context_a = _build_context(search_context_a)
+        context_b = _build_context(search_context_b)
+
+        ground_a = dedup_a
+        ground_b = dedup_b if dedup_b else dedup_a
+
+        img_sources_a = sources_a if sources_a else sources
+        img_sources_b = sources_b if sources_b else sources
+
         try:
 
             def _option_prompt(
-                label: str, guidance: str, *, exclude_name: str = ""
+                ctx: str, label: str, guidance: str, *, exclude_name: str = ""
             ) -> str:
                 return (
-                    context
+                    ctx
                     + "\n\n"
                     + f"Now produce {label}. {guidance}\n"
                     + (
@@ -1327,51 +1705,104 @@ Rules:
                     + "Return ONLY a single JSON object. No surrounding array. No markdown."
                 )
 
-            prompt_a = _option_prompt(
-                "Option A",
-                "Pick the cheaper/casual choice.",
-            )
+            effective_travel_km = base_travel_km
+
+            def _guidance(
+                base: str, *, km: float, allow_fallback_vibe: bool = False
+            ) -> str:
+                th = _travel_hint_for(km)
+                fb = ""
+                if allow_fallback_vibe:
+                    fb = "If nothing nearby matches the vibe, pick a solid local casual spot (pub/diner/pizza) instead, still nearby."
+                return " ".join(
+                    [p for p in (base.strip(), th.strip(), fb.strip()) if p]
+                )
+
             prompt_b = ""
             name_a = ""
 
             recs: list[dict] = []
 
+            attempts_a = travel_attempts_km or [effective_travel_km]
             yield _sse({"type": "status", "content": "Writing option A..."})
-            text_a = await _llm_generate(
-                prompt_a,
-                openrouter_key=openrouter_key,
-                openrouter_model=openrouter_model,
-            )
-            obj_a = _extract_json_value(text_a)
-            if not isinstance(obj_a, dict):
-                yield _sse(
-                    {
-                        "type": "error",
-                        "message": "Model returned invalid JSON for option A.",
-                        "rawPreview": str(text_a)[:500],
-                    }
-                )
-                yield _sse({"type": "done"})
-                return
 
-            norm_a = _normalize_recommendations([obj_a])
-            if not norm_a:
-                yield _sse(
-                    {
-                        "type": "error",
-                        "message": "Model returned unusable structure for option A.",
-                        "rawPreview": str(text_a)[:500],
-                    }
-                )
-                yield _sse({"type": "done"})
-                return
+            rec_a: dict = {}
+            rest_a: Any = {}
+            for i, km in enumerate(attempts_a):
+                if i > 0:
+                    yield _sse(
+                        {
+                            "type": "status",
+                            "content": "Still scanning nearby...",
+                        }
+                    )
 
-            rec_a = norm_a[0]
-            rest_a = rec_a.get("restaurant") or {}
+                prompt_a = _option_prompt(
+                    context_a,
+                    "Option A",
+                    _guidance(
+                        "Pick the cheaper/casual choice.",
+                        km=km,
+                        allow_fallback_vibe=(i == len(attempts_a) - 1),
+                    ),
+                )
+                text_a = await _llm_generate(
+                    prompt_a,
+                    openrouter_key=openrouter_key,
+                    openrouter_model=openrouter_model,
+                )
+                obj_a = _extract_json_value(text_a)
+                if not isinstance(obj_a, dict):
+                    yield _sse(
+                        {
+                            "type": "error",
+                            "message": "Model returned invalid JSON for option A.",
+                            "rawPreview": str(text_a)[:500],
+                        }
+                    )
+                    yield _sse({"type": "done"})
+                    return
+
+                norm_a = _normalize_recommendations([obj_a])
+                if not norm_a:
+                    yield _sse(
+                        {
+                            "type": "error",
+                            "message": "Model returned unusable structure for option A.",
+                            "rawPreview": str(text_a)[:500],
+                        }
+                    )
+                    yield _sse({"type": "done"})
+                    return
+
+                rec_a = norm_a[0]
+                rest_a = rec_a.get("restaurant") or {}
+                if isinstance(rest_a, dict):
+                    rec_a["maps"] = _maps_links(
+                        str(rest_a.get("name") or ""),
+                        str(rest_a.get("address") or ""),
+                    )
+
+                try:
+                    if not await _is_too_far(rest_a, max_km=km):
+                        effective_travel_km = km
+                        break
+                except Exception:
+                    effective_travel_km = km
+                    break
+
             if isinstance(rest_a, dict):
-                rec_a["maps"] = _maps_links(
-                    str(rest_a.get("name") or ""), str(rest_a.get("address") or "")
-                )
+                name_a = str(rest_a.get("name") or "").strip()
+            prompt_b = _option_prompt(
+                context_b,
+                "Option B",
+                _guidance(
+                    "Pick a pricier/special choice.",
+                    km=effective_travel_km,
+                    allow_fallback_vibe=True,
+                ),
+                exclude_name=name_a,
+            )
 
             # Ensure whatToWear isn't bland; replace with a fun generated line.
             try:
@@ -1393,8 +1824,8 @@ Rules:
                 place = (
                     str(rest_a.get("name") or "") if isinstance(rest_a, dict) else ""
                 )
-                chatter = _extract_place_chatter(place, dedup)
-                signals = _extract_signals(chatter + dedup)
+                chatter = _extract_place_chatter(place, ground_a)
+                signals = _extract_signals(chatter + ground_a)
                 if chatter:
                     rec_a["peopleSay"] = chatter
                 if signals:
@@ -1402,42 +1833,119 @@ Rules:
             except Exception:
                 pass
 
+            attempts_b = [effective_travel_km] + [
+                km for km in (travel_attempts_km or []) if km > effective_travel_km
+            ]
+            if not attempts_b:
+                attempts_b = [effective_travel_km]
+
             yield _sse({"type": "status", "content": "Writing option B..."})
-            text_b = await _llm_generate(
-                prompt_b,
-                openrouter_key=openrouter_key,
-                openrouter_model=openrouter_model,
-            )
-            obj_b = _extract_json_value(text_b)
-            if not isinstance(obj_b, dict):
-                yield _sse(
-                    {
-                        "type": "error",
-                        "message": "Model returned invalid JSON for option B.",
-                        "rawPreview": str(text_b)[:500],
-                    }
-                )
-                yield _sse({"type": "done"})
-                return
+            rec_b: dict = {}
+            rest_b: Any = {}
+            for i, km in enumerate(attempts_b):
+                if i > 0:
+                    yield _sse(
+                        {
+                            "type": "status",
+                            "content": "Scanning a little wider in your area...",
+                        }
+                    )
 
-            norm_b = _normalize_recommendations([obj_b])
-            if not norm_b:
-                yield _sse(
-                    {
-                        "type": "error",
-                        "message": "Model returned unusable structure for option B.",
-                        "rawPreview": str(text_b)[:500],
-                    }
+                prompt_b = _option_prompt(
+                    context_b,
+                    "Option B",
+                    _guidance(
+                        "Pick a pricier/special choice.",
+                        km=km,
+                        allow_fallback_vibe=(i == len(attempts_b) - 1),
+                    ),
+                    exclude_name=name_a,
                 )
-                yield _sse({"type": "done"})
-                return
+                text_b = await _llm_generate(
+                    prompt_b,
+                    openrouter_key=openrouter_key,
+                    openrouter_model=openrouter_model,
+                )
+                obj_b = _extract_json_value(text_b)
+                if not isinstance(obj_b, dict):
+                    yield _sse(
+                        {
+                            "type": "error",
+                            "message": "Model returned invalid JSON for option B.",
+                            "rawPreview": str(text_b)[:500],
+                        }
+                    )
+                    yield _sse({"type": "done"})
+                    return
 
-            rec_b = norm_b[0]
-            rest_b = rec_b.get("restaurant") or {}
-            if isinstance(rest_b, dict):
-                rec_b["maps"] = _maps_links(
-                    str(rest_b.get("name") or ""), str(rest_b.get("address") or "")
-                )
+                norm_b = _normalize_recommendations([obj_b])
+                if not norm_b:
+                    yield _sse(
+                        {
+                            "type": "error",
+                            "message": "Model returned unusable structure for option B.",
+                            "rawPreview": str(text_b)[:500],
+                        }
+                    )
+                    yield _sse({"type": "done"})
+                    return
+
+                rec_b = norm_b[0]
+                rest_b = rec_b.get("restaurant") or {}
+                if isinstance(rest_b, dict):
+                    rec_b["maps"] = _maps_links(
+                        str(rest_b.get("name") or ""),
+                        str(rest_b.get("address") or ""),
+                    )
+
+                # Ensure distinct restaurants; retry once if duplicated (at this radius).
+                try:
+                    if isinstance(rest_b, dict) and name_a:
+                        name_b = str(rest_b.get("name") or "").strip()
+                        if name_b and name_b.lower() == name_a.lower():
+                            yield _sse(
+                                {
+                                    "type": "status",
+                                    "content": "Option B looked too similar. Retrying...",
+                                }
+                            )
+                            prompt_b2 = _option_prompt(
+                                context_b,
+                                "Option B",
+                                _guidance(
+                                    "Pick a pricier/special choice that is NOT the same restaurant as Option A.",
+                                    km=km,
+                                    allow_fallback_vibe=True,
+                                ),
+                                exclude_name=name_a,
+                            )
+                            text_b2 = await _llm_generate(
+                                prompt_b2,
+                                openrouter_key=openrouter_key,
+                                openrouter_model=openrouter_model,
+                            )
+                            obj_b2 = _extract_json_value(text_b2)
+                            norm_b2 = _normalize_recommendations(
+                                [obj_b2] if isinstance(obj_b2, dict) else []
+                            )
+                            if norm_b2:
+                                rec_b = norm_b2[0]
+                                rest_b = rec_b.get("restaurant") or {}
+                                if isinstance(rest_b, dict):
+                                    rec_b["maps"] = _maps_links(
+                                        str(rest_b.get("name") or ""),
+                                        str(rest_b.get("address") or ""),
+                                    )
+                except Exception:
+                    pass
+
+                try:
+                    if not await _is_too_far(rest_b, max_km=km):
+                        effective_travel_km = km
+                        break
+                except Exception:
+                    effective_travel_km = km
+                    break
 
             try:
                 o = rec_b.get("order")
@@ -1451,38 +1959,6 @@ Rules:
             except Exception:
                 pass
 
-            # Ensure distinct restaurants; retry once if duplicated.
-            if isinstance(rest_b, dict) and name_a:
-                name_b = str(rest_b.get("name") or "").strip()
-                if name_b and name_b.lower() == name_a.lower():
-                    yield _sse(
-                        {
-                            "type": "status",
-                            "content": "Option B looked too similar. Retrying...",
-                        }
-                    )
-                    prompt_b2 = _option_prompt(
-                        "Option B",
-                        "Pick a pricier/special choice that is NOT the same restaurant as Option A.",
-                        exclude_name=name_a,
-                    )
-                    text_b2 = await _llm_generate(
-                        prompt_b2,
-                        openrouter_key=openrouter_key,
-                        openrouter_model=openrouter_model,
-                    )
-                    obj_b2 = _extract_json_value(text_b2)
-                    norm_b2 = _normalize_recommendations(
-                        [obj_b2] if isinstance(obj_b2, dict) else []
-                    )
-                    if norm_b2:
-                        rec_b = norm_b2[0]
-                        rest_b = rec_b.get("restaurant") or {}
-                        if isinstance(rest_b, dict):
-                            rec_b["maps"] = _maps_links(
-                                str(rest_b.get("name") or ""),
-                                str(rest_b.get("address") or ""),
-                            )
             recs.append(rec_b)
             yield _sse({"type": "option", "index": 1, "recommendation": rec_b})
 
@@ -1490,8 +1966,8 @@ Rules:
                 place = (
                     str(rest_b.get("name") or "") if isinstance(rest_b, dict) else ""
                 )
-                chatter = _extract_place_chatter(place, dedup)
-                signals = _extract_signals(chatter + dedup)
+                chatter = _extract_place_chatter(place, ground_b)
+                signals = _extract_signals(chatter + ground_b)
                 if chatter:
                     rec_b["peopleSay"] = chatter
                 if signals:
@@ -1500,7 +1976,7 @@ Rules:
                 pass
 
             # Best-effort image URLs (parallel)
-            async def _img_for(rec: dict) -> str:
+            async def _img_for(rec: dict, srcs: list[dict]) -> str:
                 rest = rec.get("restaurant") or {}
                 name = ""
                 address = ""
@@ -1524,16 +2000,42 @@ Rules:
                             q = f"{q} {main}"
                         q = f"{q} photo"
                         imgs = await search_images(q, client=c)
-                    for it in imgs[:10]:
-                        url = str(it.get("url") or "")
-                        if url and _is_bad_source_url(url):
+
+                    def _img_score(src_url: str, img_url: str) -> int:
+                        u = (img_url or "").lower()
+                        s = 0
+                        if not u:
+                            return -999
+                        if _is_bad_image_url(u):
+                            return -999
+                        if "media-cdn.tripadvisor.com" in u:
+                            s += 6
+                        if any(k in u for k in ("restaurant", "food", "dish")):
+                            s += 2
+                        if u.endswith((".jpg", ".jpeg", ".png", ".webp")):
+                            s += 1
+
+                        su = (src_url or "").lower()
+                        if "tripadvisor." in su:
+                            s += 2
+                        return s
+
+                    best_img = ""
+                    best_score = -999
+                    for it in imgs[:16]:
+                        src_url = str(it.get("url") or "")
+                        if src_url and _is_bad_source_url(src_url):
                             continue
                         img_url = _pick_image_url(it)
-                        if img_url and not _is_bad_image_url(img_url):
-                            return img_url
+                        score = _img_score(src_url, img_url)
+                        if score > best_score:
+                            best_score = score
+                            best_img = img_url
+                    if best_img and best_score > -50:
+                        return best_img
                 except Exception:
                     pass
-                for s in sources:
+                for s in srcs:
                     title = (s.get("title") or "").lower()
                     if name and name.lower() in title:
                         url = s.get("url") or ""
@@ -1556,12 +2058,14 @@ Rules:
                     except Exception:
                         chosen = ""
 
-                if not chosen and sources:
-                    chosen = str(sources[0].get("url") or "")
+                if not chosen and srcs:
+                    chosen = str(srcs[0].get("url") or "")
                 return await _og_image_from_url(str(chosen))
 
             imgs = await asyncio.gather(
-                *[_img_for(r) for r in recs], return_exceptions=True
+                _img_for(recs[0], img_sources_a),
+                _img_for(recs[1], img_sources_b),
+                return_exceptions=True,
             )
             for i, img in enumerate(imgs):
                 if isinstance(img, str) and img:

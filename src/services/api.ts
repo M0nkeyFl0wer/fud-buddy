@@ -189,6 +189,11 @@ export interface UserPreferences {
   dietary?: string[];
   priceRange?: string;
   vibe?: string[];
+  origin?: { lat: number; lon: number };
+  // Preferred maximum drive time. Backend converts to km.
+  maxTravelMin?: number;
+  // Back-compat (older clients). Prefer maxTravelMin.
+  maxTravelKm?: number;
 }
 
 export type StreamEvent = Record<string, unknown> & {
