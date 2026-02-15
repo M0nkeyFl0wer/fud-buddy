@@ -78,6 +78,26 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   const [cuteIndex, setCuteIndex] = useState(0);
   const [llmInfo, setLlmInfo] = useState<{ provider: string; model: string } | null>(null);
 
+  const formatError = (msg: string): string => {
+    const prefix = 'openrouter_error ';
+    if (!msg.startsWith(prefix)) return msg;
+    const raw = msg.slice(prefix.length);
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return msg;
+      const p = parsed as Record<string, unknown>;
+      const model = typeof p.model === 'string' ? p.model : '';
+      const suggestions = Array.isArray(p.suggestions) ? p.suggestions.filter((s) => typeof s === 'string') : [];
+      const base = model ? `OpenRouter rejected model id: ${model}` : 'OpenRouter rejected the selected model id.';
+      if (suggestions.length > 0) {
+        return `${base} Try: ${suggestions.slice(0, 3).join(', ')} (set in /config).`;
+      }
+      return `${base} Update it in /config.`;
+    } catch {
+      return msg;
+    }
+  };
+
   const generateRecommendations = useCallback(() => {
     setIsStreaming(true);
     setError(null);
@@ -155,7 +175,7 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
 
         if (event.type === 'error') {
           const msg = typeof event.message === 'string' ? event.message : 'Backend error';
-          setError(msg);
+          setError(formatError(msg));
           return;
         }
 
