@@ -1317,6 +1317,108 @@ def _extract_place_chatter(name: str, results: list[dict]) -> list[dict]:
     return out
 
 
+async def _search_restaurant_menu(
+    restaurant_name: str, location: str, client: httpx.AsyncClient
+) -> list[str]:
+    """Search for actual menu items for a specific restaurant.
+
+    Returns a list of dish names mentioned in search results.
+    """
+    if not restaurant_name or not location:
+        return []
+
+    # Clean up restaurant name for search
+    clean_name = restaurant_name.replace("&", "and").replace("'", "")
+
+    # Try multiple menu search queries
+    queries = [
+        f"{clean_name} {location} menu",
+        f"{clean_name} restaurant dishes",
+        f"{clean_name} what to order",
+        f"{clean_name} popular dishes",
+    ]
+
+    all_dishes: list[str] = []
+    seen: set[str] = set()
+
+    for query in queries[:2]:  # Limit to 2 queries to save time
+        try:
+            results = await search_web(query, client=client)
+            if not isinstance(results, list):
+                continue
+
+            for r in results[:5]:  # Look at top 5 results
+                if not isinstance(r, dict):
+                    continue
+
+                content = _clean_snippet(str(r.get("content") or ""))
+                title = _clean_snippet(str(r.get("title") or ""))
+                combined = (title + " " + content).lower()
+
+                # Look for dish patterns - quoted items, items before "$", numbered lists
+                # Pattern 1: "Dish Name" - $XX
+                import re
+
+                price_dishes = re.findall(r'"([^"]{3,30})"[^$]*\$\d+', combined)
+                for dish in price_dishes:
+                    d = dish.strip().title()
+                    if d and d not in seen and len(d) > 3:
+                        seen.add(d)
+                        all_dishes.append(d)
+
+                # Pattern 2: Look for common dish keywords
+                dish_keywords = [
+                    "pasta",
+                    "pizza",
+                    "burger",
+                    "steak",
+                    "salmon",
+                    "chicken",
+                    "risotto",
+                    "tacos",
+                    "burrito",
+                    "ramen",
+                    "sushi",
+                    "curry",
+                    "sandwich",
+                    "salad",
+                    "lobster",
+                    "shrimp",
+                    "brisket",
+                    "ribs",
+                    "wings",
+                    "nachos",
+                    "appetizer",
+                    "entrée",
+                    "dessert",
+                    "specialty",
+                ]
+
+                for keyword in dish_keywords:
+                    # Find sentences containing dish keywords
+                    sentences = re.findall(
+                        r"[^.!?]*\b" + keyword + r"\b[^.!?]*[.!?]",
+                        combined,
+                        re.IGNORECASE,
+                    )
+                    for sentence in sentences:
+                        # Extract dish name - usually capitalized words before the keyword
+                        match = re.search(
+                            r"([A-Z][a-zA-Z\s]{2,25})\s+" + keyword, sentence
+                        )
+                        if match:
+                            dish = (match.group(1) + " " + keyword).strip().title()
+                            if dish not in seen and len(dish) > 5:
+                                seen.add(dish)
+                                all_dishes.append(dish)
+
+        except Exception:
+            continue
+
+    # Return top 6 unique dishes
+    return all_dishes[:6]
+
+
 def _extract_signals(results: list[dict], restaurant_name: str = "") -> list[str]:
     """Extract signals only from snippets that mention the specific restaurant."""
     if not restaurant_name:
@@ -2082,6 +2184,60 @@ Rules:
 
             recs.append(rec_b)
             yield _sse({"type": "option", "index": 1, "recommendation": rec_b})
+
+            # Search for actual menu items for both restaurants
+            try:
+                yield _sse(
+                    {"type": "status", "content": "Looking up real menu items..."}
+                )
+                async with httpx.AsyncClient(
+                    timeout=10.0, follow_redirects=True
+                ) as menu_client:
+                    # Get menu for Option A
+                    if isinstance(rest_a, dict):
+                        name_a_menu = str(rest_a.get("name") or "")
+                        if name_a_menu:
+                            dishes_a = await _search_restaurant_menu(
+                                name_a_menu, location, menu_client
+                            )
+                            if dishes_a and len(dishes_a) >= 2:
+                                rec_a["order"] = {
+                                    "main": dishes_a[0],
+                                    "side": dishes_a[1] if len(dishes_a) > 1 else "",
+                                    "drink": "",
+                                }
+                                if len(dishes_a) >= 3:
+                                    rec_a["backupOrder"] = {
+                                        "main": dishes_a[2],
+                                        "side": dishes_a[3]
+                                        if len(dishes_a) > 3
+                                        else "",
+                                        "drink": "",
+                                    }
+
+                    # Get menu for Option B
+                    if isinstance(rest_b, dict):
+                        name_b_menu = str(rest_b.get("name") or "")
+                        if name_b_menu:
+                            dishes_b = await _search_restaurant_menu(
+                                name_b_menu, location, menu_client
+                            )
+                            if dishes_b and len(dishes_b) >= 2:
+                                rec_b["order"] = {
+                                    "main": dishes_b[0],
+                                    "side": dishes_b[1] if len(dishes_b) > 1 else "",
+                                    "drink": "",
+                                }
+                                if len(dishes_b) >= 3:
+                                    rec_b["backupOrder"] = {
+                                        "main": dishes_b[2],
+                                        "side": dishes_b[3]
+                                        if len(dishes_b) > 3
+                                        else "",
+                                        "drink": "",
+                                    }
+            except Exception:
+                pass  # Fall back to LLM suggestions if menu search fails
 
             try:
                 place = (

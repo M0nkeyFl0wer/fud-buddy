@@ -665,7 +665,7 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
 
                   {(current.backupOrder?.main || current.backupOrder?.side || current.backupOrder?.drink) ? (
                     <details className="rounded-xl border bg-muted/20 p-3">
-                      <summary className="cursor-pointer select-none font-semibold">Backup order</summary>
+                      <summary className="cursor-pointer select-none font-semibold">Backup suggestion</summary>
                       <div className="mt-2 grid gap-1 text-sm">
                         {current.backupOrder?.main ? <div><span className="text-muted-foreground">Main:</span> {current.backupOrder.main}</div> : null}
                         {current.backupOrder?.side ? <div><span className="text-muted-foreground">Side:</span> {current.backupOrder.side}</div> : null}
