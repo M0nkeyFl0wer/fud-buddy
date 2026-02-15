@@ -620,9 +620,15 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                       {current.restaurant.priceRange}
                     </span>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {current.restaurant.address}
-                  </p>
+                  {current.restaurant.address && !current.restaurant.address.includes('(no specific address') ? (
+                    <p className="text-sm text-muted-foreground">
+                      {current.restaurant.address}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Near {preferences.location}
+                    </p>
+                  )}
 
                   {Array.isArray(current.signals) && current.signals.length > 0 ? (
                     <div className="mt-3 mx-auto max-w-[520px] rounded-xl border bg-muted/20 p-3 text-sm">
