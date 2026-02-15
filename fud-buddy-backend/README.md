@@ -11,19 +11,17 @@ cp .env.example .env
 # Edit .env with your values
 
 # 3. Run the server
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `YELP_API_KEY` | Yes | Yelp Fusion API key (get from https://www.yelp.com/developers) |
-| `LLM_BASE_URL` | Yes | Local LLM endpoint (e.g., http://localhost:8080) |
-| `LLM_API_KEY` | No | API key for LLM (if required) |
-| `LLM_MODEL` | No | Model name (default: llama-3.1-70b) |
-| `COMFYUI_URL` | No | ComfyUI server URL for image generation |
+| `OLLAMA_BASE_URL` | No | Ollama base URL (default: http://localhost:11434) |
+| `OLLAMA_MODEL` | No | Ollama model name (default: qwen2.5:latest) |
+| `SEARXNG_URL` | No | SearxNG base URL (example: http://127.0.0.1:8888). If unset, web search returns no results. |
+| `DATABASE_URL` | No | Optional Postgres connection string for saving sessions/feedback |
 | `CORS_ORIGINS` | No | Comma-separated list of allowed origins |
 
 ## API Endpoints
@@ -31,13 +29,5 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ### Chat
 - `POST /api/chat/stream` - Streaming chat endpoint (SSE)
 
-### Images
-- `POST /api/images/generate` - Generate image via ComfyUI
-- `GET /api/images/{id}/status` - Check image generation status
-
 ### Health
 - `GET /health` - Health check
-
-## Deployment
-
-See DEPLOY.md for full deployment instructions.
