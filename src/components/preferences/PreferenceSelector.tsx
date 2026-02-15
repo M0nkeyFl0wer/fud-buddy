@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { VibePicker } from './VibePicker';
 import { MapPin, Loader2, Sparkles } from 'lucide-react';
@@ -28,6 +28,7 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
     }
   });
   const [message, setMessage] = useState('');
+  const locationInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMessage(ONBOARDING_MESSAGES[Math.floor(Math.random() * ONBOARDING_MESSAGES.length)]);
@@ -185,6 +186,7 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
               <div className="relative flex-1">
                 <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <input
+                  ref={locationInputRef}
                   type="text"
                   placeholder="City or neighborhood"
                   value={location}
@@ -192,7 +194,13 @@ export function PreferenceSelector({ onSubmit, isLoading }: PreferenceSelectorPr
                   className="w-full pl-12 pr-4 py-4 text-lg rounded-2xl border-2 border-fud-teal focus:outline-none focus:ring-4 focus:ring-fud-teal/20 bg-background"
                 />
                 {location && (
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">(is this right?)</span>
+                  <button
+                    type="button"
+                    onClick={() => locationInputRef.current?.focus()}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-none"
+                  >
+                    (is this right?)
+                  </button>
                 )}
               </div>
               <Button
