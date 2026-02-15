@@ -624,24 +624,18 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                     {current.restaurant.address}
                   </p>
 
-                  {(Array.isArray(current.signals) && current.signals.length > 0) ||
-                  (Array.isArray(current.peopleSay) && current.peopleSay.length > 0) ? (
+                  {Array.isArray(current.signals) && current.signals.length > 0 ? (
                     <div className="mt-3 mx-auto max-w-[520px] rounded-xl border bg-muted/20 p-3 text-sm">
-                      {Array.isArray(current.signals) && current.signals.length > 0 ? (
-                        <div className="flex flex-wrap gap-2 justify-center">
-                          {current.signals.slice(0, 4).map((s) => (
-                            <span
-                              key={s}
-                              className="px-2.5 py-1 rounded-full bg-background border text-xs"
-                            >
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                      {Array.isArray(current.peopleSay) && current.peopleSay.length > 0 ? (
-                        <div className="mt-2 text-muted-foreground italic">“{current.peopleSay[0]?.text}”</div>
-                      ) : null}
+                      <div className="flex flex-wrap gap-2 justify-center">
+                        {current.signals.slice(0, 4).map((s) => (
+                          <span
+                            key={s}
+                            className="px-2.5 py-1 rounded-full bg-background border text-xs"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
 
@@ -660,12 +654,6 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                     </div>
                   ) : null}
                 </div>
-
-                {current.whatToWear ? (
-                  <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-                    <span className="font-semibold">What to wear:</span> {current.whatToWear}
-                  </div>
-                ) : null}
 
                 <div className="space-y-3">
                   {(current.order?.main || current.order?.side || current.order?.drink) ? (
@@ -716,6 +704,12 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                     </div>
                   ) : null}
                 </div>
+
+                {current.whatToWear ? (
+                  <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                    <span className="font-semibold">What to wear:</span> {current.whatToWear}
+                  </div>
+                ) : null}
 
                 <div className="border-t pt-4">
                   <h4 className="font-semibold mb-2">The story:</h4>
