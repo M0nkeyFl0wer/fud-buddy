@@ -25,22 +25,22 @@ cat <<'EOF_SCRIPT' > ~/.local/bin/fudbuddy-tunnel.sh
 #!/usr/bin/env bash
 set -euo pipefail
 TAIL_IP="100.xx.yy.zz"        # <-- replace with tailscale ip
-REMOTE_PORT=8085               # port on seshat running inference API
+REMOTE_PORT=8085               # port on your remote host running the inference API
 LOCAL_PORT=9001
 TMP_KEY="/tmp/fudbuddy_id_ed25519"
-install -m 600 -D /home/mini-monkey/.ssh/id_ed25519 "$TMP_KEY"
+install -m 600 -D "$HOME/.ssh/id_ed25519" "$TMP_KEY"
 exec /usr/bin/ssh \
   -NT \
   -o ExitOnForwardFailure=yes \
   -o ServerAliveInterval=30 \
   -o ServerAliveCountMax=3 \
   -o StrictHostKeyChecking=no \
-  -o UserKnownHostsFile=/home/mini-monkey/.ssh/known_hosts \
+  -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
   -o IdentitiesOnly=yes \
   -i "$TMP_KEY" \
   -L "${TAIL_IP}:${LOCAL_PORT}:127.0.0.1:${REMOTE_PORT}" \
   -p 8888 \
-  m0nkey-fl0wer@seshat.noosworx.com
+  REMOTE_USER@REMOTE_HOST
 EOF_SCRIPT
 chmod +x ~/.local/bin/fudbuddy-tunnel.sh
 ```
