@@ -76,6 +76,7 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   const [isSaveOpen, setIsSaveOpen] = useState(false);
 
   const [cuteIndex, setCuteIndex] = useState(0);
+  const [llmInfo, setLlmInfo] = useState<{ provider: string; model: string } | null>(null);
 
   const generateRecommendations = useCallback(() => {
     setIsStreaming(true);
@@ -90,6 +91,7 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
     setFeedbackWent(null);
     setFeedbackRating(null);
     setCuteIndex(Math.floor(Math.random() * SEARCHING_MESSAGES.length));
+    setLlmInfo(null);
     
     // Random searching message
     setStatusMessage(SEARCHING_MESSAGES[Math.floor(Math.random() * SEARCHING_MESSAGES.length)]);
@@ -133,6 +135,18 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
       preferences,
       (event) => {
         if (!event || typeof event !== 'object') return;
+
+        if (event.type === 'meta') {
+          const llm = (event as { llm?: unknown }).llm;
+          if (llm && typeof llm === 'object') {
+            const provider = (llm as { provider?: unknown }).provider;
+            const model = (llm as { model?: unknown }).model;
+            if (typeof provider === 'string' && typeof model === 'string') {
+              setLlmInfo({ provider, model });
+            }
+          }
+          return;
+        }
 
         if (event.type === 'status' && typeof event.content === 'string') {
           setStatusMessage(event.content);
@@ -378,6 +392,11 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
 
             {current && (
               <Card className="p-6 space-y-4">
+                {llmInfo ? (
+                  <div className="text-[11px] text-muted-foreground text-center">
+                    Using {llmInfo.provider} · <span className="font-mono">{llmInfo.model}</span>
+                  </div>
+                ) : null}
                 {isStreaming && (
                   <div className="text-xs text-muted-foreground text-center">
                     Still cooking the next option…
