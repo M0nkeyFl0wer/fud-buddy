@@ -3,6 +3,80 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes fv-flip {
+  0% {
+    transform: translateY(0) rotateX(0deg) scale(1);
+  }
+  35% {
+    transform: translateY(-10px) rotateX(25deg) scale(1.02);
+  }
+  70% {
+    transform: translateY(0) rotateX(0deg) scale(1);
+  }
+  100% {
+    transform: translateY(0) rotateX(0deg) scale(1);
+  }
+}
+
+.fv-wrap {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 10px 8px;
+  border-radius: 16px;
+  border: 1px solid hsl(var(--border));
+  background: linear-gradient(135deg, hsl(var(--muted) / 0.45), transparent);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.fv-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  align-items: center;
+  justify-items: center;
+  perspective: 600px;
+}
+
+.fv-chip {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  border: 1px solid hsl(var(--border));
+  background: linear-gradient(180deg, hsl(var(--background) / 0.85), hsl(var(--muted) / 0.35));
+  display: grid;
+  place-items: center;
+  transform-style: preserve-3d;
+  animation: fv-flip 1.8s ease-in-out infinite;
+}
+
+.fv-svg {
+  width: 54px;
+  height: 54px;
+}
+
+@media (max-width: 520px) {
+  .fv-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .fv-chip {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+  }
+  .fv-svg {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fv-chip {
+    animation: none;
+  }
+}
+
 @layer base {
   :root {
     --background: 24 82% 95%;
