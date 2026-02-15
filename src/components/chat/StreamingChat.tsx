@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, RefreshCw, Sparkles, Copy, Check, ChevronLeft, ChevronRight, Share2, History, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Sparkles, Copy, Check, ChevronLeft, ChevronRight, Share2, History, Bookmark, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { apiClient, Message, UserPreferences } from '@/services/api';
 import { SEARCHING_MESSAGES, RESULT_INTROS, PRICEY_INTROS, CHEAP_INTROS } from '@/services/messages';
 import LogoMark from '@/components/LogoMark';
-import { ShareAccountDialog } from '@/components/ShareAccountDialog';
 import { loadUserProfile } from '@/services/profile';
+import { ShareDialog } from '@/components/ShareDialog';
+import { SaveDialog } from '@/components/SaveDialog';
+import { features } from '@/services/features';
 import { upsertHistoryEntry, updateHistoryFeedback } from '@/services/history';
 
 interface StreamingChatProps {
@@ -69,12 +71,11 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
   const [sessionCreatedAt, setSessionCreatedAt] = useState<string | null>(null);
   const [feedbackWent, setFeedbackWent] = useState<boolean | null>(null);
   const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
-  const [feedbackComment, setFeedbackComment] = useState('');
-  const [isSendingFeedback, setIsSendingFeedback] = useState(false);
-  const [feedbackSent, setFeedbackSent] = useState(false);
-  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isSaveOpen, setIsSaveOpen] = useState(false);
+
+  const [cuteIndex, setCuteIndex] = useState(0);
 
   const generateRecommendations = useCallback(() => {
     setIsStreaming(true);
@@ -88,9 +89,7 @@ export function StreamingChat({ preferences, onBack, onGenerateImage }: Streamin
     setShowSources(false);
     setFeedbackWent(null);
     setFeedbackRating(null);
-    setFeedbackComment('');
-    setFeedbackSent(false);
-    setFeedbackError(null);
+    setCuteIndex(Math.floor(Math.random() * SEARCHING_MESSAGES.length));
     
     // Random searching message
     setStatusMessage(SEARCHING_MESSAGES[Math.floor(Math.random() * SEARCHING_MESSAGES.length)]);
@@ -179,36 +178,17 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
     );
   }, [preferences]);
 
-  const submitFeedback = useCallback(async () => {
-    if (!sessionId || isSendingFeedback || feedbackSent) return;
-
-    setIsSendingFeedback(true);
-    setFeedbackError(null);
-    try {
-      const resp = await apiClient.post<Record<string, unknown>>('/api/feedback', {
-        session_id: sessionId,
-        went: feedbackWent === null ? undefined : feedbackWent,
-        rating: feedbackRating === null ? undefined : feedbackRating,
-        comment: feedbackComment.trim() || undefined,
-        consent_contact: false,
-        consent_public: false,
-      });
-
-      if (resp?.status !== 'ok') {
-        const msg = typeof resp?.message === 'string' ? resp.message : 'Feedback unavailable';
-        throw new Error(msg);
-      }
-      setFeedbackSent(true);
-    } catch (e) {
-      setFeedbackError(e instanceof Error ? e.message : 'Failed to send feedback');
-    } finally {
-      setIsSendingFeedback(false);
-    }
-  }, [feedbackComment, feedbackRating, feedbackSent, feedbackWent, isSendingFeedback, sessionId]);
-
   useEffect(() => {
     generateRecommendations();
   }, [generateRecommendations]);
+
+  useEffect(() => {
+    if (!isStreaming) return;
+    const t = window.setInterval(() => {
+      setCuteIndex((i) => (i + 1) % SEARCHING_MESSAGES.length);
+    }, 1600);
+    return () => window.clearInterval(t);
+  }, [isStreaming]);
 
   const handleCopy = () => {
     const rec = recommendations[currentIndex];
@@ -243,7 +223,6 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
   const current = recommendations[currentIndex];
 
   const previewDish = current?.order?.main || current?.dishes?.[0]?.name;
-  const savedName = loadUserProfile()?.displayName || '';
   const profile = loadUserProfile();
 
   const persistSessionToHistory = useCallback((allow: boolean) => {
@@ -258,10 +237,9 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
       feedback: {
         rating: feedbackRating === null ? undefined : feedbackRating,
         went: feedbackWent === null ? undefined : feedbackWent,
-        comment: feedbackComment.trim() || undefined,
       },
     });
-  }, [feedbackComment, feedbackRating, feedbackWent, preferences, recommendations, sessionCreatedAt, sessionId, sources]);
+  }, [feedbackRating, feedbackWent, preferences, recommendations, sessionCreatedAt, sessionId, sources]);
 
   const quickThumb = async (liked: boolean) => {
     const rating = liked ? 5 : 1;
@@ -341,7 +319,8 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
         {isStreaming && recommendations.length === 0 && (
           <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
             <RefreshCw className="w-8 h-8 animate-spin mb-4" />
-            <p>{statusMessage || 'Finding you options...'}</p>
+            <p className="text-sm">{SEARCHING_MESSAGES[cuteIndex] || 'Finding you options...'}</p>
+            <p className="text-xs mt-2 opacity-80">{statusMessage || 'Cooking...'} </p>
           </div>
         )}
 
@@ -556,13 +535,17 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
               <Share2 className="w-4 h-4" />
               Share
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setIsSaveOpen(true)} className="gap-2">
+              <Bookmark className="w-4 h-4" />
+              Save
+            </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => navigate('/history')}
               className="gap-2"
-              disabled={!profile?.consentSaveHistory}
-              title={profile?.consentSaveHistory ? 'View history' : 'Enable in Share + Save'}
+              disabled={!features.enableLocalHistory || !profile?.consentSaveHistory}
+              title={profile?.consentSaveHistory ? 'View history' : 'Connect to save history'}
             >
               <History className="w-4 h-4" />
               History
@@ -575,21 +558,34 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
         </div>
       )}
 
-      <ShareAccountDialog
+      <ShareDialog
         open={isShareOpen}
         onOpenChange={setIsShareOpen}
-        defaultName={savedName}
-        onSaved={(p) => {
-          persistSessionToHistory(Boolean(p.consentSaveHistory));
-        }}
-        preview={
+        recommendation={
           current
             ? {
-                restaurantName: current.restaurant.name,
-                dishName: previewDish,
+                restaurant: {
+                  name: current.restaurant.name,
+                  address: current.restaurant.address,
+                  priceRange: current.restaurant.priceRange,
+                },
+                whatToWear: current.whatToWear,
+                order: current.order,
+                backupOrder: current.backupOrder,
+                imageUrl: current.imageUrl,
               }
             : undefined
         }
+        vibe={preferences.vibe?.[0]}
+        location={preferences.location}
+      />
+
+      <SaveDialog
+        open={isSaveOpen}
+        onOpenChange={setIsSaveOpen}
+        onSaved={(p) => {
+          persistSessionToHistory(Boolean(p.consentSaveHistory));
+        }}
       />
     </div>
   );
