@@ -145,6 +145,31 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
           return;
         }
 
+        const idx = (event as { index?: unknown }).index;
+        const recObj = (event as { recommendation?: unknown }).recommendation;
+        const patchObj = (event as { patch?: unknown }).patch;
+
+        if (event.type === 'option' && typeof idx === 'number' && typeof recObj === 'object' && recObj) {
+          setRecommendations((prev) => {
+            const next = prev.slice();
+            next[idx] = recObj as Recommendation;
+            // Trim any trailing empties
+            return next.filter(Boolean);
+          });
+          return;
+        }
+
+        if (event.type === 'enrich' && typeof idx === 'number' && typeof patchObj === 'object' && patchObj) {
+          setRecommendations((prev) => {
+            const next = prev.slice();
+            const existing = next[idx];
+            if (!existing) return prev;
+            next[idx] = { ...existing, ...(patchObj as Partial<Recommendation>) };
+            return next;
+          });
+          return;
+        }
+
         if (event.type === 'result' && Array.isArray(event.recommendations)) {
           setRecommendations(event.recommendations);
           if (typeof event.sessionId === 'string') {
@@ -166,7 +191,7 @@ Be helpful, be specific, be charming. Return ONLY valid JSON, no other text.`;
           return;
         }
 
-        // Optional: we can show streaming JSON output later; for now ignore delta.
+        // delta is intentionally ignored; we render option/enrich events instead.
       },
       () => {
         setIsStreaming(false);
@@ -324,7 +349,7 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
           </div>
         )}
 
-        {!isStreaming && recommendations.length > 0 && (
+        {recommendations.length > 0 && (
           <div className="relative">
             {/* Swipe navigation */}
             {recommendations.length > 1 && (
@@ -353,6 +378,11 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
 
             {current && (
               <Card className="p-6 space-y-4">
+                {isStreaming && (
+                  <div className="text-xs text-muted-foreground text-center">
+                    Still cooking the next option…
+                  </div>
+                )}
                 {current.imageUrl ? (
                   <div className="-mx-6 -mt-6">
                     <img
