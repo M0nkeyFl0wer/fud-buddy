@@ -625,6 +625,17 @@ ${rec.whatToWear ? `What to wear: ${rec.whatToWear}\n` : ''}
                   )}
                 </div>
 
+                {current.imageUrl ? (
+                  <div className="mx-auto w-full max-w-[420px]">
+                    <img
+                      src={current.imageUrl}
+                      alt=""
+                      className="aspect-square w-full object-cover rounded-2xl border"
+                      loading="lazy"
+                    />
+                  </div>
+                ) : null}
+
                 {/* Order This - Priority Section */}
                 <div className="space-y-3">
                   {(current.order?.main || current.order?.side || current.order?.drink) ? (
