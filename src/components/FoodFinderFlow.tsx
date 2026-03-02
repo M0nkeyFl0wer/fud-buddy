@@ -81,6 +81,7 @@ const FoodFinderFlow: React.FC = () => {
     });
 
     setIsLoading(true);
+    setStep('results'); // Show loading state immediately
 
     try {
       // Search for restaurants
@@ -97,14 +98,13 @@ const FoodFinderFlow: React.FC = () => {
         preferences: prefs,
         location: location || undefined
       });
-
-      setStep('results');
     } catch (error) {
       toast({
         title: 'Search error',
         description: 'Could not find restaurants. Please try again.',
         variant: 'destructive'
       });
+      setStep('preferences'); // Go back on error
     } finally {
       setIsLoading(false);
     }
@@ -152,9 +152,15 @@ const FoodFinderFlow: React.FC = () => {
           <div className="max-w-md mx-auto px-4 py-8 text-center">
             <RobotLogo size={320} />
             <h1 className="text-4xl font-bold mt-6 mb-2">FUD Buddy</h1>
-            <p className="text-lg text-gray-600 dark:text-gray-300 mb-8">
+            <p className="text-lg text-gray-600 dark:text-gray-300 mb-4">
               We know what you want to eat before you do
             </p>
+            <div className="bg-yellow-100 dark:bg-yellow-900/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg p-4 mb-6 text-sm">
+              <p className="font-semibold text-yellow-800 dark:text-yellow-200 mb-1">📍 Beta Version</p>
+              <p className="text-yellow-700 dark:text-yellow-300">
+                Using sample restaurant data for testing. Privacy tracking is fully functional!
+              </p>
+            </div>
             <Button
               onClick={handleStart}
               size="lg"
@@ -196,6 +202,16 @@ const FoodFinderFlow: React.FC = () => {
         );
 
       case 'results':
+        if (isLoading) {
+          return (
+            <div className="max-w-md mx-auto px-4 py-8 text-center">
+              <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-fud-teal dark:border-fud-peach mx-auto mb-4"></div>
+              <p className="text-lg font-medium">Finding the perfect spots...</p>
+              <p className="text-sm text-gray-500 mt-2">Searching for {preferences.join(', ')} options</p>
+            </div>
+          );
+        }
+
         if (restaurants.length === 0) {
           return (
             <div className="max-w-md mx-auto px-4 py-8 text-center">

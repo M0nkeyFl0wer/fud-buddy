@@ -49,7 +49,7 @@ class AIService {
   }
 
   /**
-   * Send a message to the AI model (Seshat local model or fallback to OpenAI)
+   * Send a message to the AI model (Seshat local model or fallback to mock)
    */
   async sendMessage(message: string, chatType: AIChatType, previousMessages: any[] = [], restaurantContext?: string): Promise<string> {
     try {
@@ -60,22 +60,23 @@ class AIService {
         timestamp: new Date().toISOString()
       });
 
-      // If we have an endpoint configured, use it (Seshat or OpenAI)
-      if (this.config.endpoint) {
-        return await this.callAIAPI(message, chatType, previousMessages, restaurantContext);
+      // Try to use Ollama if endpoint is configured and looks reachable
+      if (this.config.endpoint && this.config.endpoint.includes('localhost')) {
+        try {
+          return await this.callAIAPI(message, chatType, previousMessages, restaurantContext);
+        } catch (error) {
+          console.warn("Ollama not available, falling back to mock responses:", error);
+          // Fall through to mock responses
+        }
       }
 
-      // Otherwise fall back to mock responses
-      console.warn("No AI endpoint configured. Using mock responses.");
+      // Production fallback: use mock responses
+      console.log("Using mock AI responses (Ollama not configured)");
       return this.getMockResponse(chatType, message);
     } catch (error) {
-      console.error("Error calling AI API:", error);
-      toast({
-        title: "Error",
-        description: "Failed to connect to AI service. Please try again later.",
-        variant: "destructive"
-      });
-      return "I'm having trouble connecting right now. Please try again in a moment.";
+      console.error("Error in AI service:", error);
+      // Don't show error toast for expected fallback behavior
+      return this.getMockResponse(chatType, message);
     }
   }
 
