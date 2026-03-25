@@ -1,43 +1,49 @@
 
-// This file would contain integration with Airtable in a real implementation
+// Analytics logging — posts events to the local SQLite backend (replaces Airtable mock).
 
-// Mock function to send analytics to Airtable
-export const logToAirtable = async (tableName: string, data: unknown): Promise<{ success: true }> => {
-  // In a real implementation, this would make API calls to Airtable
-  console.log(`[Airtable] Logging to ${tableName}:`, data);
-  
-  // Simulate API delay
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      console.log(`[Airtable] Logged to ${tableName} successfully`);
-      resolve({ success: true });
-    }, 300);
-  });
+const API_BASE =
+  (typeof window !== 'undefined' && window.localStorage.getItem('fud_api_base_url')) ||
+  import.meta.env.VITE_API_BASE_URL ||
+  'http://localhost:8000';
+
+function getClientId(): string {
+  try {
+    return window.localStorage.getItem('fud_client_id') || '';
+  } catch {
+    return '';
+  }
+}
+
+export const logToAirtable = async (
+  tableName: string,
+  data: unknown,
+): Promise<{ success: true }> => {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const clientId = getClientId();
+    if (clientId) headers['X-FUD-Client-Id'] = clientId;
+
+    await fetch(`${API_BASE}/api/events`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        event_type: 'analytics',
+        table_name: tableName,
+        data,
+      }),
+    });
+  } catch {
+    // Backend unavailable — swallow silently so the UI is never blocked.
+    console.debug(`[analytics] POST /api/events failed for ${tableName}`);
+  }
+
+  return { success: true };
 };
 
-// Mock function to query Airtable
-export const queryAirtable = async (tableName: string, query: unknown): Promise<unknown> => {
-  console.log(`[Airtable] Querying ${tableName}:`, query);
-  
-  // Simulate API delay
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      console.log(`[Airtable] Got response from ${tableName}`);
-      
-      // Return mock data
-      if (tableName === 'restaurants') {
-        resolve([
-          { id: '1', name: 'The Hungry Robot', cuisine: 'American' },
-          { id: '2', name: 'Byte Bistro', cuisine: 'Fusion' }
-        ]);
-      } else if (tableName === 'menuItems') {
-        resolve([
-          { id: '1', name: 'Truffle Burger', restaurant: '1' },
-          { id: '2', name: 'Sweet Potato Fries', restaurant: '1' }
-        ]);
-      } else {
-        resolve([]);
-      }
-    }, 300);
-  });
+export const queryAirtable = async (
+  _tableName: string,
+  _query: unknown,
+): Promise<unknown> => {
+  // Query support not needed yet — kept for interface compat.
+  return [];
 };

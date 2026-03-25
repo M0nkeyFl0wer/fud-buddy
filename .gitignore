@@ -19,6 +19,8 @@ dist-ssr
 # Python
 __pycache__/
 *.pyc
+*.db
+server/.venv/
 
 # Editor directories and files
 .vscode/*
